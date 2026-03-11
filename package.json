@@ -1,0 +1,29 @@
+{
+  "name": "wiper-land",
+  "version": "1.0.0",
+  "description": "Hello world !!!! hehehehehehehehaweofja;owejfao;wiejfawo;iejf",
+  "main": "main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Wiper43/Wiper-Land.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Wiper43/Wiper-Land/issues"
+  },
+  "homepage": "https://github.com/Wiper43/Wiper-Land#readme",
+  "dependencies": {
+    "three": "^0.183.2"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1"
+  }
+}

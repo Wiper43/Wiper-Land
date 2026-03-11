@@ -1,0 +1,28 @@
+html, body, #app {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: #111;
+  font-family: Arial, sans-serif;
+}
+
+canvas {
+  display: block;
+}
+
+#hint {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  color: white;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  z-index: 10;
+  user-select: none;
+}
