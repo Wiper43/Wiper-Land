@@ -111,7 +111,7 @@ export function createCombat({ camera, world }) {
     // Spawn attack visual first.
     // This is just a visual shell, not a collider.
     // ----------------------------------------------------------
-    spawnAttackVisual(attackData)
+   // spawnAttackVisual(attackData)
 
     const result = performRaycastAttack({
       raycaster,
@@ -237,6 +237,11 @@ export function createCombat({ camera, world }) {
   // Direct Attack uses the existing screen slash in UI.
   // Flamethrower / Water Gun use a prism shell in the world.
   // ============================================================
+ 
+  /*// World-space spell visual disabled for now.
+// We are using the UI spellbook cast visual instead so the spell
+// looks like it comes from the player's lower-right hand/book.
+
   function spawnAttackVisual(attackData) {
     if (attackData.visualType !== 'beamShell') return
 
@@ -301,6 +306,7 @@ export function createCombat({ camera, world }) {
 
     requestAnimationFrame(fade)
   }
+  */
 
   // ============================================================
   // Creates a rectangular prism shell made of 1x1x1 cubes.

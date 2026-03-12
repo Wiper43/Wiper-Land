@@ -124,9 +124,14 @@ try {
       // RIGHT CLICK = SPELLBOOK ATTACK
       // --------------------------------------------------------
       if (input.consumeAltAttack()) {
-        const result = combat.trySecondaryAttack(now)
-        logCombatResult(result, 'Right Click')
+      const result = combat.trySecondaryAttack(now)
+
+       if (result.type !== 'cooldown' && result.attack) {
+      ui.playSpellbookCast(result.attack)
       }
+
+  logCombatResult(result, 'Right Click')
+}
 
       const selected = combat.attacks[combat.getSelectedRightClickAttack()]
       ui.setHint(

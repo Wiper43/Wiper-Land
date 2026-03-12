@@ -1,4 +1,16 @@
 export function createUI() {
+  // ============================================================
+  // ROOT UI LAYER
+  // ------------------------------------------------------------
+  // Fullscreen overlay used for:
+  // - crosshair
+  // - hint text
+  // - direct attack slash
+  // - lower-right spellbook
+  // - spell beam / flare
+  // - options panel
+  // - spellbook selection panel
+  // ============================================================
   const root = document.createElement('div')
   root.style.position = 'fixed'
   root.style.inset = '0'
@@ -38,10 +50,13 @@ export function createUI() {
   hint.style.fontFamily = 'sans-serif'
   hint.style.fontSize = '14px'
   hint.style.textShadow = '0 0 4px rgba(0,0,0,0.9)'
+  hint.textContent = ''
   root.appendChild(hint)
 
   // ============================================================
-  // LEFT CLICK SLASH FOR DIRECT ATTACK
+  // LEFT CLICK DIRECT ATTACK SLASH
+  // ------------------------------------------------------------
+  // This keeps your existing direct attack visual in the center.
   // ============================================================
   const slash = document.createElement('div')
   slash.style.position = 'absolute'
@@ -60,6 +75,139 @@ export function createUI() {
   slash.style.transform = 'rotate(-60deg) scale(0.55)'
   slash.style.transition = 'none'
   root.appendChild(slash)
+
+  // ============================================================
+  // LOWER-RIGHT SPELLBOOK HELD ITEM
+  // ------------------------------------------------------------
+  // This acts like a held item in the player's right hand.
+  // ============================================================
+  const spellbookHolder = document.createElement('div')
+  spellbookHolder.style.position = 'absolute'
+  spellbookHolder.style.right = '28px'
+  spellbookHolder.style.bottom = '30px'
+  spellbookHolder.style.width = '220px'
+  spellbookHolder.style.height = '180px'
+  spellbookHolder.style.pointerEvents = 'none'
+  spellbookHolder.style.overflow = 'visible'
+  root.appendChild(spellbookHolder)
+
+  const spellbookShadow = document.createElement('div')
+  spellbookShadow.style.position = 'absolute'
+  spellbookShadow.style.right = '6px'
+  spellbookShadow.style.bottom = '4px'
+  spellbookShadow.style.width = '132px'
+  spellbookShadow.style.height = '92px'
+  spellbookShadow.style.background = 'rgba(0,0,0,0.35)'
+  spellbookShadow.style.borderRadius = '12px'
+  spellbookShadow.style.filter = 'blur(12px)'
+  spellbookShadow.style.transform = 'rotate(-18deg)'
+  spellbookHolder.appendChild(spellbookShadow)
+
+  const spellbook = document.createElement('div')
+  spellbook.style.position = 'absolute'
+  spellbook.style.right = '0'
+  spellbook.style.bottom = '0'
+  spellbook.style.width = '132px'
+  spellbook.style.height = '92px'
+  spellbook.style.borderRadius = '12px'
+  spellbook.style.transform = 'translate(0px, 0px) rotate(-18deg) scale(1)'
+  spellbook.style.transformOrigin = '85% 85%'
+  spellbook.style.transition = 'none'
+  spellbook.style.background =
+    'linear-gradient(145deg, rgba(60,40,26,0.96), rgba(28,18,12,0.96))'
+  spellbook.style.border = '2px solid rgba(180,140,100,0.45)'
+  spellbook.style.boxShadow =
+    '0 12px 30px rgba(0,0,0,0.45), inset 0 0 20px rgba(255,255,255,0.04)'
+  spellbookHolder.appendChild(spellbook)
+
+  const spellbookSpine = document.createElement('div')
+  spellbookSpine.style.position = 'absolute'
+  spellbookSpine.style.left = '10px'
+  spellbookSpine.style.top = '4px'
+  spellbookSpine.style.bottom = '4px'
+  spellbookSpine.style.width = '12px'
+  spellbookSpine.style.borderRadius = '8px'
+  spellbookSpine.style.background =
+    'linear-gradient(180deg, rgba(90,60,40,0.95), rgba(50,30,20,0.95))'
+  spellbook.appendChild(spellbookSpine)
+
+  const spellbookPages = document.createElement('div')
+  spellbookPages.style.position = 'absolute'
+  spellbookPages.style.left = '22px'
+  spellbookPages.style.top = '8px'
+  spellbookPages.style.right = '8px'
+  spellbookPages.style.bottom = '8px'
+  spellbookPages.style.borderRadius = '10px'
+  spellbookPages.style.background =
+    'linear-gradient(145deg, rgba(228,220,196,0.9), rgba(186,176,150,0.88))'
+  spellbookPages.style.boxShadow = 'inset 0 0 12px rgba(0,0,0,0.12)'
+  spellbook.appendChild(spellbookPages)
+
+  const spellbookGlow = document.createElement('div')
+  spellbookGlow.style.position = 'absolute'
+  spellbookGlow.style.left = '28px'
+  spellbookGlow.style.top = '16px'
+  spellbookGlow.style.right = '18px'
+  spellbookGlow.style.bottom = '16px'
+  spellbookGlow.style.borderRadius = '8px'
+  spellbookGlow.style.background =
+    'radial-gradient(circle, rgba(255,80,50,0.0), rgba(255,80,50,0.0))'
+  spellbookGlow.style.opacity = '0'
+  spellbookGlow.style.filter = 'blur(6px)'
+  spellbookGlow.style.transition = 'none'
+  spellbook.appendChild(spellbookGlow)
+
+  const spellbookRune = document.createElement('div')
+  spellbookRune.style.position = 'absolute'
+  spellbookRune.style.left = '56px'
+  spellbookRune.style.top = '26px'
+  spellbookRune.style.width = '30px'
+  spellbookRune.style.height = '30px'
+  spellbookRune.style.borderRadius = '50%'
+  spellbookRune.style.border = '2px solid rgba(255,220,160,0.35)'
+  spellbookRune.style.boxShadow = '0 0 8px rgba(255,220,160,0.12)'
+  spellbookRune.style.background = 'rgba(255,255,255,0.03)'
+  spellbookPages.appendChild(spellbookRune)
+
+  // ============================================================
+  // FULLSCREEN SPELL TRAIL
+  // ------------------------------------------------------------
+  // IMPORTANT:
+  // This is attached to root, not the spellbook holder.
+  // That way it can use full-screen coordinates and properly
+  // point from the book to the center crosshair.
+  // ============================================================
+  const spellTrail = document.createElement('div')
+  spellTrail.style.position = 'absolute'
+  spellTrail.style.left = '0px'
+  spellTrail.style.top = '0px'
+  spellTrail.style.width = '0px'
+  spellTrail.style.height = '34px'
+  spellTrail.style.borderRadius = '24px'
+  spellTrail.style.transform = 'rotate(0deg) scaleX(0)'
+  spellTrail.style.transformOrigin = '100% 50%'
+  spellTrail.style.opacity = '0'
+  spellTrail.style.filter = 'blur(4px)'
+  spellTrail.style.transition = 'none'
+  spellTrail.style.pointerEvents = 'none'
+  root.appendChild(spellTrail)
+
+  // ============================================================
+  // FULLSCREEN SPELL FLARE
+  // ============================================================
+  const spellFlare = document.createElement('div')
+  spellFlare.style.position = 'absolute'
+  spellFlare.style.left = '0px'
+  spellFlare.style.top = '0px'
+  spellFlare.style.width = '66px'
+  spellFlare.style.height = '66px'
+  spellFlare.style.borderRadius = '50%'
+  spellFlare.style.opacity = '0'
+  spellFlare.style.filter = 'blur(4px)'
+  spellFlare.style.transform = 'scale(0.4)'
+  spellFlare.style.transition = 'none'
+  spellFlare.style.pointerEvents = 'none'
+  root.appendChild(spellFlare)
 
   // ============================================================
   // OPTIONS BUTTON
@@ -167,6 +315,9 @@ export function createUI() {
     spellbookPanel.style.display = spellbookOpen ? 'block' : 'none'
   })
 
+  // ============================================================
+  // DIRECT ATTACK VISUAL
+  // ============================================================
   function playAttackSlash() {
     slash.style.transition = 'none'
     slash.style.opacity = '0.95'
@@ -178,6 +329,134 @@ export function createUI() {
       slash.style.opacity = '0'
       slash.style.transform = 'rotate(25deg) scale(1.05)'
     })
+  }
+
+  // ============================================================
+  // SPELLBOOK CAST VISUAL
+  // ------------------------------------------------------------
+  // Fixes the beam so it points from the little book to the
+  // center of the screen.
+  // ============================================================
+  function playSpellbookCast(attack) {
+    const attackId = attack?.id || ''
+    const attackName = attack?.name || ''
+
+    let glowA = 'rgba(255,90,50,0.95)'
+    let glowB = 'rgba(255,170,80,0.55)'
+    let flare = 'rgba(255,110,60,0.95)'
+    let trail =
+      'linear-gradient(90deg, rgba(255,120,80,0.0), rgba(255,90,50,0.95), rgba(255,170,70,0.72))'
+
+    const lowered = `${attackId} ${attackName}`.toLowerCase()
+
+    if (lowered.includes('water')) {
+      glowA = 'rgba(80,170,255,0.95)'
+      glowB = 'rgba(110,240,255,0.55)'
+      flare = 'rgba(90,180,255,0.98)'
+      trail =
+        'linear-gradient(90deg, rgba(80,170,255,0.0), rgba(70,160,255,0.96), rgba(140,255,255,0.74))'
+    } else if (lowered.includes('flame')) {
+      glowA = 'rgba(255,70,40,0.98)'
+      glowB = 'rgba(255,170,70,0.60)'
+      flare = 'rgba(255,90,40,0.98)'
+      trail =
+        'linear-gradient(90deg, rgba(255,100,50,0.0), rgba(255,70,40,0.97), rgba(255,180,70,0.78))'
+    }
+
+    // ----------------------------------------------------------
+    // Book casting point on screen
+    // These numbers are tuned to visually line up with the book.
+    // ----------------------------------------------------------
+    const bookX = window.innerWidth - 108
+    const bookY = window.innerHeight - 92
+
+    // ----------------------------------------------------------
+    // Center of screen / crosshair
+    // ----------------------------------------------------------
+    const centerX = window.innerWidth * 0.5
+    const centerY = window.innerHeight * 0.5
+
+    const dx = centerX - bookX
+    const dy = centerY - bookY
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI)
+
+    // ----------------------------------------------------------
+    // Reset visuals
+    // ----------------------------------------------------------
+    spellbook.style.transition = 'none'
+    spellbookGlow.style.transition = 'none'
+    spellTrail.style.transition = 'none'
+    spellFlare.style.transition = 'none'
+
+    spellbook.style.transform = 'translate(0px, 0px) rotate(-18deg) scale(1)'
+    spellbook.style.boxShadow =
+      '0 12px 30px rgba(0,0,0,0.45), inset 0 0 20px rgba(255,255,255,0.04)'
+
+    spellbookGlow.style.opacity = '0'
+    spellbookGlow.style.background = `radial-gradient(circle, ${glowA}, ${glowB}, rgba(255,255,255,0.0))`
+
+    // ----------------------------------------------------------
+    // Beam setup
+    // We place the right end of the beam at the book,
+    // then rotate the full beam so it points to center screen.
+    // ----------------------------------------------------------
+    spellTrail.style.left = `${bookX - distance}px`
+    spellTrail.style.top = `${bookY - 17}px`
+    spellTrail.style.width = `${distance}px`
+    spellTrail.style.height = '34px'
+    spellTrail.style.background = trail
+    spellTrail.style.opacity = '0.98'
+    spellTrail.style.transformOrigin = '100% 50%'
+    spellTrail.style.transform = `rotate(${angleDeg}deg) scaleX(0.08)`
+
+    // ----------------------------------------------------------
+    // Flare at the book
+    // ----------------------------------------------------------
+    spellFlare.style.left = `${bookX - 33}px`
+    spellFlare.style.top = `${bookY - 33}px`
+    spellFlare.style.background = `radial-gradient(circle, ${flare}, rgba(255,255,255,0.0) 70%)`
+    spellFlare.style.opacity = '0.95'
+    spellFlare.style.transform = 'scale(0.35)'
+
+    void spellbook.offsetWidth
+
+    requestAnimationFrame(() => {
+      // Book lifts slightly like a right-hand cast
+      spellbook.style.transition =
+        'transform 150ms ease-out, box-shadow 150ms ease-out'
+      spellbook.style.transform = 'translate(-26px, -18px) rotate(-8deg) scale(1.05)'
+      spellbook.style.boxShadow =
+        `0 14px 34px rgba(0,0,0,0.50), 0 0 18px ${glowA}, inset 0 0 20px rgba(255,255,255,0.05)`
+
+      // Page glow blooms
+      spellbookGlow.style.transition = 'opacity 140ms ease-out'
+      spellbookGlow.style.opacity = '1'
+
+      // Beam expands from the book toward center screen
+      spellTrail.style.transition =
+        'transform 120ms ease-out, opacity 180ms ease-out'
+      spellTrail.style.transform = `rotate(${angleDeg}deg) scaleX(1)`
+      spellTrail.style.opacity = '0'
+
+      // Casting flare pops
+      spellFlare.style.transition =
+        'transform 120ms ease-out, opacity 170ms ease-out'
+      spellFlare.style.transform = 'scale(1.15)'
+      spellFlare.style.opacity = '0'
+    })
+
+    // Return book to idle
+    setTimeout(() => {
+      spellbook.style.transition =
+        'transform 180ms ease-out, box-shadow 180ms ease-out'
+      spellbook.style.transform = 'translate(0px, 0px) rotate(-18deg) scale(1)'
+      spellbook.style.boxShadow =
+        '0 12px 30px rgba(0,0,0,0.45), inset 0 0 20px rgba(255,255,255,0.04)'
+
+      spellbookGlow.style.transition = 'opacity 180ms ease-out'
+      spellbookGlow.style.opacity = '0'
+    }, 120)
   }
 
   function setCowVolume(value) {
@@ -226,6 +505,7 @@ export function createUI() {
     },
 
     playAttackSlash,
+    playSpellbookCast,
 
     setCowVolume,
 
