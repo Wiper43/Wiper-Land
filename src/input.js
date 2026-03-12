@@ -1,33 +1,53 @@
 export function createInput(canvas) {
+  // ============================================================
+  // KEYBOARD STATE
+  // ------------------------------------------------------------
+  // Keep the exact structure player.js already expects.
+  // ============================================================
   const keys = {
     forward: false,
     backward: false,
     left: false,
     right: false,
-    jump: false
+    jump: false,
   }
 
+  // ============================================================
+  // MOUSE STATE
+  // ------------------------------------------------------------
+  // Keep the exact structure player.js already expects:
+  // input.mouse.sensitivity
+  // input.consumeMouseDelta() -> { dx, dy }
+  // ============================================================
   const mouse = {
     deltaX: 0,
     deltaY: 0,
-    sensitivity: 0.002
+    sensitivity: 0.002,
   }
 
-  let attack = false
+  // ============================================================
+  // ATTACK INPUT
+  // ------------------------------------------------------------
+  // leftAttack  = normal direct attack
+  // rightAttack = spellbook / alternate attack
+  // ============================================================
+  let leftAttack = false
+  let rightAttack = false
 
+  // ============================================================
+  // POINTER LOCK
   // ------------------------------------------------------------
-  // Pointer lock
-  // Click canvas to lock mouse for FPS camera control
-  // ------------------------------------------------------------
+  // Click canvas to lock mouse for FPS camera control.
+  // ============================================================
   canvas.addEventListener('click', () => {
     if (document.pointerLockElement !== canvas) {
       canvas.requestPointerLock()
     }
   })
 
-  // ------------------------------------------------------------
-  // Keyboard input
-  // ------------------------------------------------------------
+  // ============================================================
+  // KEYBOARD INPUT
+  // ============================================================
   window.addEventListener('keydown', (e) => {
     switch (e.code) {
       case 'KeyW':
@@ -68,11 +88,11 @@ export function createInput(canvas) {
     }
   })
 
+  // ============================================================
+  // MOUSE LOOK
   // ------------------------------------------------------------
-  // Mouse look
-  // Only record movement while pointer is locked
-  // This avoids weird lag / drift / mismatch feeling
-  // ------------------------------------------------------------
+  // Only record movement while pointer is locked.
+  // ============================================================
   window.addEventListener('mousemove', (e) => {
     if (document.pointerLockElement !== canvas) return
 
@@ -80,29 +100,53 @@ export function createInput(canvas) {
     mouse.deltaY += e.movementY
   })
 
+  // ============================================================
+  // MOUSE ATTACKS
   // ------------------------------------------------------------
-  // Left click attack
-  // Only attack while pointer is locked
-  // ------------------------------------------------------------
+  // Left click  = direct attack
+  // Right click = selected spellbook attack
+  // Only works while pointer is locked.
+  // ============================================================
   canvas.addEventListener('mousedown', (event) => {
     if (document.pointerLockElement !== canvas) return
 
     if (event.button === 0) {
-      attack = true
+      leftAttack = true
+    }
+
+    if (event.button === 2) {
+      rightAttack = true
     }
   })
 
+  // Prevent browser context menu on right click
+  window.addEventListener('contextmenu', (event) => {
+    event.preventDefault()
+  })
+
+  // ============================================================
+  // PUBLIC API
+  // ------------------------------------------------------------
+  // Keep compatibility with your existing player.js
+  // while adding consumeAltAttack() for right click.
+  // ============================================================
   return {
     keys,
     mouse,
 
     get attack() {
-      return attack
+      return leftAttack
     },
 
     consumeAttack() {
-      const current = attack
-      attack = false
+      const current = leftAttack
+      leftAttack = false
+      return current
+    },
+
+    consumeAltAttack() {
+      const current = rightAttack
+      rightAttack = false
       return current
     },
 
@@ -114,6 +158,6 @@ export function createInput(canvas) {
       mouse.deltaY = 0
 
       return { dx, dy }
-    }
+    },
   }
 }

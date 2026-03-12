@@ -5,13 +5,14 @@ import { createTestWorld } from './world.js'
 import { createInput } from './input.js'
 import { createPlayer } from './player.js'
 import { createUI } from './ui.js'
+import { createCombat } from './combat.js'
 
 const app = document.getElementById('app')
 
 try {
   const game = createRenderer(app)
   const input = createInput(game.renderer.domElement)
-  createUI()
+  const ui = createUI()
 
   const audioListener = new THREE.AudioListener()
   game.camera.add(audioListener)
@@ -22,24 +23,26 @@ try {
     listener: audioListener,
     mooBuffer: null,
   }
-/*
-fetch('/sounds/cow-moo')
-  .then((r) => {
-    console.log('sound fetch status:', r.status, r.headers.get('content-type'))
-    return r.arrayBuffer()
+
+  const world = createTestWorld(game.scene, worldAudio)
+  const player = createPlayer(game.camera, input, world)
+  const combat = createCombat({
+    camera: game.camera,
+    world,
   })
-  .then((buf) => {
-    console.log('sound byte length:', buf.byteLength)
-  })
-  .catch((err) => {
-    console.error('sound fetch failed:', err)
-  })
-*/
+
+  // ============================================================
+  // LOAD COW AUDIO
+  // ============================================================
   audioLoader.load(
     '/sounds/cow-moo.wav',
     (buffer) => {
       worldAudio.mooBuffer = buffer
       console.log('Loaded cow moo sound')
+
+      if (typeof world.setCowSoundBuffer === 'function') {
+        world.setCowSoundBuffer(buffer)
+      }
     },
     undefined,
     (err) => {
@@ -47,24 +50,50 @@ fetch('/sounds/cow-moo')
     }
   )
 
-  // Important: unlock browser audio on first click
   function unlockAudio() {
     if (audioListener.context.state === 'suspended') {
-      audioListener.context.resume().then(() => {
-        console.log('Audio context resumed')
-      }).catch((err) => {
-        console.error('Failed to resume audio context:', err)
-      })
+      audioListener.context
+        .resume()
+        .then(() => {
+          console.log('Audio context resumed')
+        })
+        .catch((err) => {
+          console.error('Failed to resume audio context:', err)
+        })
     }
   }
 
   window.addEventListener('pointerdown', unlockAudio, { passive: true })
 
-  const world = createTestWorld(game.scene, worldAudio)
-  const player = createPlayer(game.camera, input, world)
+  // ============================================================
+  // OPTIONS UI -> AUDIO
+  // ============================================================
+  ui.setCowVolume(0.8)
+  if (typeof world.setCowVolume === 'function') {
+    world.setCowVolume(0.8)
+  }
 
-  const raycaster = new THREE.Raycaster()
-  const ATTACK_RANGE = 3
+  ui.onCowVolumeChange((value) => {
+    if (typeof world.setCowVolume === 'function') {
+      world.setCowVolume(value)
+    }
+  })
+
+  // ============================================================
+  // SPELLBOOK UI -> COMBAT
+  // ============================================================
+  function refreshSpellbook() {
+    ui.setSpellbookAttacks(
+      combat.getAttackList(),
+      combat.getSelectedRightClickAttack(),
+      (attackId) => {
+        combat.setSelectedRightClickAttack(attackId)
+        refreshSpellbook()
+      }
+    )
+  }
+
+  refreshSpellbook()
 
   let lastTime = performance.now()
 
@@ -76,16 +105,33 @@ fetch('/sounds/cow-moo')
 
     try {
       player.update(deltaTime)
+      world.update(deltaTime, game.camera, player)
 
-      for (const entity of world.entities) {
-        if (!entity.isDead && entity.update) {
-          entity.update(deltaTime, game.camera, player)
-        }
-      }
-
+      // --------------------------------------------------------
+      // LEFT CLICK = DIRECT ATTACK
+      // --------------------------------------------------------
       if (input.consumeAttack()) {
-        performBasicAttack(raycaster, game.camera, world, ATTACK_RANGE)
+        const result = combat.tryPrimaryAttack(now)
+
+        if (result.type !== 'cooldown') {
+          ui.playAttackSlash()
+        }
+
+        logCombatResult(result, 'Left Click')
       }
+
+      // --------------------------------------------------------
+      // RIGHT CLICK = SPELLBOOK ATTACK
+      // --------------------------------------------------------
+      if (input.consumeAltAttack()) {
+        const result = combat.trySecondaryAttack(now)
+        logCombatResult(result, 'Right Click')
+      }
+
+      const selected = combat.attacks[combat.getSelectedRightClickAttack()]
+      ui.setHint(
+        `WASD move • Space jump • Left: Direct Attack • Right: ${selected?.name ?? 'None'}`
+      )
 
       game.renderer.render(game.scene, game.camera)
     } catch (err) {
@@ -99,49 +145,20 @@ fetch('/sounds/cow-moo')
   showError('STARTUP ERROR', err)
 }
 
-function performBasicAttack(raycaster, camera, world, attackRange) {
-  raycaster.setFromCamera({ x: 0, y: 0 }, camera)
-  raycaster.near = 0
-  raycaster.far = attackRange
-
-  const hittableMeshes = []
-  const meshToEntity = new Map()
-
-  for (const entity of world.entities) {
-    if (entity.isDead) continue
-    if (!entity.mesh) continue
-
-    entity.mesh.traverse((child) => {
-      if (!child.isMesh) return
-      hittableMeshes.push(child)
-      meshToEntity.set(child, entity)
-    })
+function logCombatResult(result, label) {
+  if (result.type === 'cooldown') {
+    console.log(`${label}: cooldown ${Math.ceil(result.cooldownRemainingMs)}ms`)
+  } else if (result.type === 'miss') {
+    console.log(`${label}: ${result.attack?.name ?? 'Attack'} missed`)
+  } else if (result.type === 'blocked') {
+    console.log(`${label}: blocked by ${result.entity?.name ?? result.entity?.type}`)
+  } else if (result.type === 'damage') {
+    console.log(
+      `${label}: ${result.attack?.name ?? 'Attack'} hit ${result.entity?.name ?? result.entity?.type} for ${result.damage}`
+    )
+  } else if (result.type === 'no-effect') {
+    console.log(`${label}: no effect`)
   }
-
-  const hits = raycaster.intersectObjects(hittableMeshes, false)
-
-  if (hits.length === 0) {
-    console.log('Attack missed')
-    return
-  }
-
-  for (const hit of hits) {
-    const entity = meshToEntity.get(hit.object)
-
-    if (!entity || entity.isDead) continue
-
-    if (entity.canTakeDamage) {
-      entity.takeDamage(10)
-      return
-    }
-
-    if (entity.blocksAttack) {
-      console.log(`Attack blocked by ${entity.name ?? entity.type}`)
-      return
-    }
-  }
-
-  console.log('Attack hit nothing damageable')
 }
 
 function showError(label, err) {
