@@ -9,20 +9,61 @@ import { createUI } from './ui.js'
 const app = document.getElementById('app')
 
 try {
-  // ------------------------------------------------------------
-  // Core game setup
-  // ------------------------------------------------------------
   const game = createRenderer(app)
-  const world = createTestWorld(game.scene)
-
   const input = createInput(game.renderer.domElement)
+  createUI()
+
+  const audioListener = new THREE.AudioListener()
+  game.camera.add(audioListener)
+
+  const audioLoader = new THREE.AudioLoader()
+
+  const worldAudio = {
+    listener: audioListener,
+    mooBuffer: null,
+  }
+/*
+fetch('/sounds/cow-moo')
+  .then((r) => {
+    console.log('sound fetch status:', r.status, r.headers.get('content-type'))
+    return r.arrayBuffer()
+  })
+  .then((buf) => {
+    console.log('sound byte length:', buf.byteLength)
+  })
+  .catch((err) => {
+    console.error('sound fetch failed:', err)
+  })
+*/
+  audioLoader.load(
+    '/sounds/cow-moo.wav',
+    (buffer) => {
+      worldAudio.mooBuffer = buffer
+      console.log('Loaded cow moo sound')
+    },
+    undefined,
+    (err) => {
+      console.error('Failed to load cow moo sound:', err)
+    }
+  )
+
+  // Important: unlock browser audio on first click
+  function unlockAudio() {
+    if (audioListener.context.state === 'suspended') {
+      audioListener.context.resume().then(() => {
+        console.log('Audio context resumed')
+      }).catch((err) => {
+        console.error('Failed to resume audio context:', err)
+      })
+    }
+  }
+
+  window.addEventListener('pointerdown', unlockAudio, { passive: true })
+
+  const world = createTestWorld(game.scene, worldAudio)
   const player = createPlayer(game.camera, input, world)
-  const ui = createUI()
 
-  // Raycaster used for combat hitscan attacks
   const raycaster = new THREE.Raycaster()
-
-  // Attack can only hit within this distance
   const ATTACK_RANGE = 3
 
   let lastTime = performance.now()
@@ -34,28 +75,18 @@ try {
     lastTime = now
 
     try {
-      // --------------------------------------------------------
-      // Update player movement / camera
-      // --------------------------------------------------------
       player.update(deltaTime)
 
-      // Update player movement / camera
-      for (const enemy of world.enemies) {
-  if (!enemy.isDead && enemy.update) {
-    enemy.update(deltaTime)
-  }
-}
+      for (const entity of world.entities) {
+        if (!entity.isDead && entity.update) {
+          entity.update(deltaTime, game.camera, player)
+        }
+      }
 
-      // --------------------------------------------------------
-      // Combat: left click basic attack
-      // --------------------------------------------------------
       if (input.consumeAttack()) {
         performBasicAttack(raycaster, game.camera, world, ATTACK_RANGE)
       }
 
-      // --------------------------------------------------------
-      // Render frame
-      // --------------------------------------------------------
       game.renderer.render(game.scene, game.camera)
     } catch (err) {
       showError('FRAME ERROR', err)
@@ -68,88 +99,51 @@ try {
   showError('STARTUP ERROR', err)
 }
 
-// --------------------------------------------------------------
-// Performs a simple short-range hitscan / raycast basic attack
-// Rules:
-// 1. Attack only reaches ATTACK_RANGE units
-// 2. If a wall/block is hit before the enemy, the enemy does not get hit
-// --------------------------------------------------------------
 function performBasicAttack(raycaster, camera, world, attackRange) {
-  // Cast from center of screen
   raycaster.setFromCamera({ x: 0, y: 0 }, camera)
-
-  // Limit total ray distance
   raycaster.near = 0
   raycaster.far = attackRange
 
-  // ------------------------------------------------------------
-  // Gather enemy meshes
-  // ------------------------------------------------------------
-  const enemyMeshes = []
+  const hittableMeshes = []
+  const meshToEntity = new Map()
 
-  for (const enemy of world.enemies) {
-    if (enemy.isDead) continue
+  for (const entity of world.entities) {
+    if (entity.isDead) continue
+    if (!entity.mesh) continue
 
-    enemy.mesh.traverse((child) => {
-      if (child.isMesh) {
-        enemyMeshes.push(child)
-      }
+    entity.mesh.traverse((child) => {
+      if (!child.isMesh) return
+      hittableMeshes.push(child)
+      meshToEntity.set(child, entity)
     })
   }
 
-  // ------------------------------------------------------------
-  // Gather world blocker meshes
-  // These are the boxes/walls that can stop the attack
-  // ------------------------------------------------------------
-  const blockerMeshes = world.colliders.map(collider => collider.mesh)
+  const hits = raycaster.intersectObjects(hittableMeshes, false)
 
-  // ------------------------------------------------------------
-  // Raycast against enemies and blockers separately
-  // ------------------------------------------------------------
-  const enemyHits = raycaster.intersectObjects(enemyMeshes, false)
-  const blockerHits = raycaster.intersectObjects(blockerMeshes, false)
-
-  const nearestEnemyHit = enemyHits.length > 0 ? enemyHits[0] : null
-  const nearestBlockerHit = blockerHits.length > 0 ? blockerHits[0] : null
-
-  // No enemy in range at all
-  if (!nearestEnemyHit) {
+  if (hits.length === 0) {
     console.log('Attack missed')
     return
   }
 
-  // If a wall/block is closer than the enemy, the attack is blocked
-  if (nearestBlockerHit && nearestBlockerHit.distance < nearestEnemyHit.distance) {
-    console.log('Attack blocked by wall')
-    return
+  for (const hit of hits) {
+    const entity = meshToEntity.get(hit.object)
+
+    if (!entity || entity.isDead) continue
+
+    if (entity.canTakeDamage) {
+      entity.takeDamage(10)
+      return
+    }
+
+    if (entity.blocksAttack) {
+      console.log(`Attack blocked by ${entity.name ?? entity.type}`)
+      return
+    }
   }
 
-  // ------------------------------------------------------------
-  // Find which enemy owns the hit mesh
-  // ------------------------------------------------------------
-  const hitObject = nearestEnemyHit.object
-
-  const enemy = world.enemies.find((e) => {
-    let found = false
-
-    e.mesh.traverse((child) => {
-      if (child === hitObject) {
-        found = true
-      }
-    })
-
-    return found
-  })
-
-  if (!enemy || enemy.isDead) return
-
-  enemy.takeDamage(10)
+  console.log('Attack hit nothing damageable')
 }
 
-// --------------------------------------------------------------
-// Debug overlay for startup / runtime errors
-// Helps prevent white screen with no clue why
-// --------------------------------------------------------------
 function showError(label, err) {
   console.error(label, err)
 
@@ -165,6 +159,5 @@ function showError(label, err) {
   pre.style.whiteSpace = 'pre-wrap'
   pre.style.zIndex = '99999'
   pre.textContent = `${label}\n${err?.stack || err}`
-
   document.body.appendChild(pre)
 }

@@ -1,108 +1,138 @@
 import * as THREE from 'three'
 
-export function createTestWorld(scene) {
-  // This array stores all solid objects the player can collide with
+export function createTestWorld(scene, audio = {}) {
   const colliders = []
-
-  // This array stores damageable enemies for combat raycasts
-  const enemies = []
-
-  // ------------------------------------------------------------------
-  // FLOOR
-  // ------------------------------------------------------------------
+  const entities = []
 
   const floorGeo = new THREE.PlaneGeometry(40, 40)
-  const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x3a7a3a
-  })
-
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a7a3a })
   const floor = new THREE.Mesh(floorGeo, floorMat)
   floor.rotation.x = -Math.PI / 2
   scene.add(floor)
 
-  // Helpful visual grid for testing movement and aiming
   const grid = new THREE.GridHelper(40, 40)
   scene.add(grid)
 
-  // ------------------------------------------------------------------
-  // ARENA WALLS
-  // ------------------------------------------------------------------
-
-  addBox(scene, colliders, {
+  addBlock(scene, colliders, entities, {
     size: [40, 4, 1],
     position: [0, 2, -20],
-    color: 0x666666
+    color: 0x666666,
+    name: 'north wall',
+    maxHealth: Infinity,
+    blocksMovement: true,
+    blocksAttack: true,
+    damageable: false,
   })
 
-  addBox(scene, colliders, {
+  addBlock(scene, colliders, entities, {
     size: [40, 4, 1],
     position: [0, 2, 20],
-    color: 0x666666
+    color: 0x666666,
+    name: 'south wall',
+    maxHealth: Infinity,
+    blocksMovement: true,
+    blocksAttack: true,
+    damageable: false,
   })
 
-  addBox(scene, colliders, {
+  addBlock(scene, colliders, entities, {
     size: [1, 4, 40],
     position: [-20, 2, 0],
-    color: 0x666666
+    color: 0x666666,
+    name: 'west wall',
+    maxHealth: Infinity,
+    blocksMovement: true,
+    blocksAttack: true,
+    damageable: false,
   })
 
-  addBox(scene, colliders, {
+  addBlock(scene, colliders, entities, {
     size: [1, 4, 40],
     position: [20, 2, 0],
-    color: 0x666666
+    color: 0x666666,
+    name: 'east wall',
+    maxHealth: Infinity,
+    blocksMovement: true,
+    blocksAttack: true,
+    damageable: false,
   })
 
-  // ------------------------------------------------------------------
-  // TEST BLOCKS
-  // ------------------------------------------------------------------
-
-  addBox(scene, colliders, {
+  addBlock(scene, colliders, entities, {
     size: [2, 1.5, 2],
     position: [0, 0.75, 0],
-    color: 0x888888
+    color: 0x888888,
+    name: 'test block 1',
+    maxHealth: 30,
+    blocksMovement: true,
+    blocksAttack: true,
+    damageable: true,
   })
 
-  addBox(scene, colliders, {
+  addBlock(scene, colliders, entities, {
     size: [3, 1.5, 3],
     position: [6, 0.75, 2],
-    color: 0x8b5a2b
+    color: 0x8b5a2b,
+    name: 'test block 2',
+    maxHealth: 40,
+    blocksMovement: true,
+    blocksAttack: true,
+    damageable: true,
   })
 
-  addBox(scene, colliders, {
+  addBlock(scene, colliders, entities, {
     size: [2, 3, 2],
     position: [-5, 1.5, -3],
-    color: 0x8b5a2b
+    color: 0x8b5a2b,
+    name: 'test block 3',
+    maxHealth: 50,
+    blocksMovement: true,
+    blocksAttack: true,
+    damageable: true,
   })
 
-  addBox(scene, colliders, {
+  addBlock(scene, colliders, entities, {
     size: [6, 2, 1],
     position: [3, 1, -7],
-    color: 0x7777aa
+    color: 0x7777aa,
+    name: 'test block 4',
+    maxHealth: 60,
+    blocksMovement: true,
+    blocksAttack: true,
+    damageable: true,
   })
 
-  addBox(scene, colliders, {
+  addBlock(scene, colliders, entities, {
     size: [1, 2, 8],
     position: [-8, 1, 6],
-    color: 0xaa7777
+    color: 0xaa7777,
+    name: 'test block 5',
+    maxHealth: 60,
+    blocksMovement: true,
+    blocksAttack: true,
+    damageable: true,
   })
 
-  // ------------------------------------------------------------------
-  // COW DUMMY ENEMY
-  // ------------------------------------------------------------------
+  const cow = createCowDummy(scene, colliders, new THREE.Vector3(0, 0, -5), audio)
+  entities.push(cow)
 
-  const cow = createCowDummy(scene, new THREE.Vector3(0, 0, -5))
-  enemies.push(cow)
-
-  return {
-    colliders,
-    enemies
-  }
+  return { colliders, entities }
 }
 
-// ------------------------------------------------------------------
-// Adds a solid box to the world and creates a Box3 collider for it
-// ------------------------------------------------------------------
-function addBox(scene, colliders, { size, position, color = 0x888888 }) {
+function addBlock(
+  scene,
+  colliders,
+  entities,
+  {
+    size,
+    position,
+    color = 0x888888,
+    name = 'block',
+    maxHealth = Infinity,
+    blocksMovement = true,
+    blocksAttack = true,
+    damageable = false,
+  }
+) {
   const [width, height, depth] = size
   const [x, y, z] = position
 
@@ -110,7 +140,6 @@ function addBox(scene, colliders, { size, position, color = 0x888888 }) {
     new THREE.BoxGeometry(width, height, depth),
     new THREE.MeshStandardMaterial({ color })
   )
-
   mesh.position.set(x, y, z)
   scene.add(mesh)
 
@@ -123,24 +152,55 @@ function addBox(scene, colliders, { size, position, color = 0x888888 }) {
     new THREE.Vector3(x + halfW, y + halfH, z + halfD)
   )
 
-  colliders.push({
+  const collider = {
     mesh,
-    box
-  })
+    box,
+    isDynamic: false,
+  }
 
-  return mesh
+  if (blocksMovement) {
+    colliders.push(collider)
+  }
+
+  const entity = {
+    type: 'block',
+    name,
+    mesh,
+    collider,
+    health: maxHealth,
+    maxHealth,
+    isDead: false,
+    blocksAttack,
+    canTakeDamage: damageable,
+
+    takeDamage(amount) {
+      if (!this.canTakeDamage || this.isDead) return
+
+      this.health -= amount
+      flashMeshes(this.mesh)
+      console.log(`${this.name} HP:`, this.health)
+
+      if (this.health <= 0) {
+        this.isDead = true
+        scene.remove(this.mesh)
+
+        const colliderIndex = colliders.indexOf(this.collider)
+        if (colliderIndex !== -1) {
+          colliders.splice(colliderIndex, 1)
+        }
+
+        console.log(`${this.name} destroyed`)
+      }
+    },
+  }
+
+  entities.push(entity)
+  return entity
 }
 
-// ------------------------------------------------------------------
-// Creates a simple cow-like dummy with health bar + hit flash + wandering
-// ------------------------------------------------------------------
-function createCowDummy(scene, position) {
+function createCowDummy(scene, colliders, position, audio) {
   const group = new THREE.Group()
 
-  // ----------------------------------------------------------------
-  // Base materials
-  // Each mesh gets its own cloned material so flashing restores cleanly
-  // ----------------------------------------------------------------
   const whiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff })
   const blackMat = new THREE.MeshStandardMaterial({ color: 0x222222 })
   const pinkMat = new THREE.MeshStandardMaterial({ color: 0xffb6c1 })
@@ -149,51 +209,27 @@ function createCowDummy(scene, position) {
     return new THREE.Mesh(geometry, material.clone())
   }
 
-  // ----------------------------------------------------------------
-  // Body
-  // ----------------------------------------------------------------
-  const body = makeMesh(
-    new THREE.BoxGeometry(2.2, 1.2, 1.1),
-    whiteMat
-  )
+  const body = makeMesh(new THREE.BoxGeometry(2.2, 1.2, 1.1), whiteMat)
   body.position.set(0, 1.4, 0)
   group.add(body)
 
-  // Spots
-  const spot1 = makeMesh(
-    new THREE.BoxGeometry(0.5, 0.35, 0.05),
-    blackMat
-  )
+  const spot1 = makeMesh(new THREE.BoxGeometry(0.5, 0.35, 0.05), blackMat)
   spot1.position.set(-0.3, 1.5, 0.58)
   group.add(spot1)
 
-  const spot2 = makeMesh(
-    new THREE.BoxGeometry(0.45, 0.4, 0.05),
-    blackMat
-  )
+  const spot2 = makeMesh(new THREE.BoxGeometry(0.45, 0.4, 0.05), blackMat)
   spot2.position.set(0.5, 1.25, -0.58)
   group.add(spot2)
 
-  // ----------------------------------------------------------------
-  // Head
-  // ----------------------------------------------------------------
-  const head = makeMesh(
-    new THREE.BoxGeometry(0.85, 0.75, 0.75),
-    whiteMat
-  )
+  const head = makeMesh(new THREE.BoxGeometry(0.85, 0.75, 0.75), whiteMat)
   head.position.set(1.45, 1.5, 0)
   group.add(head)
 
-  const nose = makeMesh(
-    new THREE.BoxGeometry(0.25, 0.3, 0.45),
-    pinkMat
-  )
+  const nose = makeMesh(new THREE.BoxGeometry(0.25, 0.3, 0.45), pinkMat)
   nose.position.set(1.95, 1.35, 0)
   group.add(nose)
 
-  // Ears
   const earGeo = new THREE.BoxGeometry(0.15, 0.2, 0.1)
-
   const leftEar = makeMesh(earGeo, whiteMat)
   leftEar.position.set(1.45, 1.95, -0.3)
   group.add(leftEar)
@@ -202,9 +238,7 @@ function createCowDummy(scene, position) {
   rightEar.position.set(1.45, 1.95, 0.3)
   group.add(rightEar)
 
-  // Horns
   const hornGeo = new THREE.BoxGeometry(0.1, 0.15, 0.1)
-
   const leftHorn = makeMesh(hornGeo, blackMat)
   leftHorn.position.set(1.7, 1.95, -0.18)
   group.add(leftHorn)
@@ -213,9 +247,7 @@ function createCowDummy(scene, position) {
   rightHorn.position.set(1.7, 1.95, 0.18)
   group.add(rightHorn)
 
-  // Legs
   const legGeo = new THREE.BoxGeometry(0.22, 1.2, 0.22)
-
   const leg1 = makeMesh(legGeo, blackMat)
   leg1.position.set(-0.7, 0.6, -0.35)
   group.add(leg1)
@@ -232,75 +264,111 @@ function createCowDummy(scene, position) {
   leg4.position.set(0.7, 0.6, 0.35)
   group.add(leg4)
 
-  // Tail
-  const tail = makeMesh(
-    new THREE.BoxGeometry(0.08, 0.6, 0.08),
-    blackMat
-  )
+  const tail = makeMesh(new THREE.BoxGeometry(0.08, 0.6, 0.08), blackMat)
   tail.position.set(-1.1, 1.55, 0)
   tail.rotation.z = -0.4
   group.add(tail)
 
-  // Put cow into the scene
   group.position.copy(position)
   scene.add(group)
 
-  // ----------------------------------------------------------------
-  // Health bar
-  // ----------------------------------------------------------------
   const healthBar = createHealthBar()
-  healthBar.group.position.set(0, 3.1, 0)
-  group.add(healthBar.group)
+  scene.add(healthBar.group)
 
-  // ----------------------------------------------------------------
-  // Movement settings
-  // ----------------------------------------------------------------
   let moveTimer = 0
   const moveDirection = new THREE.Vector3(1, 0, 0)
   const moveSpeed = 1.2
+  const cowRadius = 0.9
+  const playerPushRadius = 1.0
 
-  // Arena clamp range so cow stays inside the walls
   const minX = -18
   const maxX = 18
   const minZ = -18
   const maxZ = 18
 
   const maxHealth = 50
-  let flashTimeoutId = null
+
+  let mooSound = null
+  if (audio?.listener) {
+    mooSound = new THREE.Audio(audio.listener)
+    if (audio?.mooBuffer) {
+      mooSound.setBuffer(audio.mooBuffer)
+    }
+      mooSound.setVolume(1.0)
+  }
 
   const enemy = {
+    type: 'enemy',
+    name: 'cow dummy',
     mesh: group,
     health: maxHealth,
     maxHealth,
     isDead: false,
+    blocksAttack: true,
+    canTakeDamage: true,
 
-    update(deltaTime) {
+    update(deltaTime, camera, player) {
       if (this.isDead) return
 
-      // Countdown until the cow picks a new random direction
+      if (mooSound && !mooSound.buffer && audio?.mooBuffer) {
+        mooSound.setBuffer(audio.mooBuffer)
+        console.log('Attached moo sound buffer to cow')
+      }
+
       moveTimer -= deltaTime
 
       if (moveTimer <= 0) {
         moveTimer = 1.5 + Math.random() * 2.0
-
         const angle = Math.random() * Math.PI * 2
-        moveDirection.set(
-          Math.cos(angle),
-          0,
-          Math.sin(angle)
-        ).normalize()
+        moveDirection.set(Math.cos(angle), 0, Math.sin(angle)).normalize()
       }
 
-      // Move the cow
-      group.position.addScaledVector(moveDirection, moveSpeed * deltaTime)
+      const moveStep = moveDirection.clone().multiplyScalar(moveSpeed * deltaTime)
+      const nextPosition = group.position.clone().add(moveStep)
 
-      // Keep the cow inside the arena
+      let blocked = false
+      for (const collider of colliders) {
+        if (circleIntersectsBoxXZ(nextPosition, cowRadius, collider.box)) {
+          blocked = true
+          break
+        }
+      }
+
+      if (!blocked) {
+        group.position.copy(nextPosition)
+      }
+
       group.position.x = THREE.MathUtils.clamp(group.position.x, minX, maxX)
       group.position.z = THREE.MathUtils.clamp(group.position.z, minZ, maxZ)
 
-      // Make the cow face the direction it is moving
+      const playerPos = getPlayerPosition(player, camera)
+      const dx = group.position.x - playerPos.x
+      const dz = group.position.z - playerPos.z
+      const distSq = dx * dx + dz * dz
+      const minDist = cowRadius + playerPushRadius
+
+      if (distSq > 0.000001 && distSq < minDist * minDist) {
+        const dist = Math.sqrt(distSq)
+        const overlap = minDist - dist
+        const nx = dx / dist
+        const nz = dz / dist
+
+        group.position.x += nx * overlap
+        group.position.z += nz * overlap
+      }
+
       if (moveDirection.lengthSq() > 0.0001) {
         group.rotation.y = Math.atan2(moveDirection.x, moveDirection.z)
+      }
+
+      healthBar.group.position.set(
+        group.position.x,
+        group.position.y + 3.1,
+        group.position.z
+      )
+
+      if (camera) {
+        healthBar.group.quaternion.copy(camera.quaternion)
       }
     },
 
@@ -310,28 +378,37 @@ function createCowDummy(scene, position) {
       this.health -= amount
       if (this.health < 0) this.health = 0
 
-      console.log('Cow HP:', this.health)
-
       updateHealthBar(healthBar, this.health, this.maxHealth)
-      flashCow(group, flashTimeoutId, (id) => {
-        flashTimeoutId = id
-      })
+      flashMeshes(group)
+
+      console.log('Cow HP:', this.health)
+      console.log('Moo buffer loaded?', !!mooSound?.buffer)
+      console.log('Audio context state:', audio?.listener?.context?.state)
+
+      if (mooSound?.buffer) {
+        if (mooSound.isPlaying) {
+          mooSound.stop()
+        }
+        // Random pitch variation
+        mooSound.playbackRate = 0.9 + Math.random() * 0.2
+        mooSound.play()
+        console.log('Played moo sound')
+      } else {
+        console.log('No moo buffer yet')
+      }
 
       if (this.health <= 0) {
         this.isDead = true
-        group.remove(healthBar.group)
         scene.remove(group)
+        scene.remove(healthBar.group)
         console.log('Cow dummy defeated')
       }
-    }
+    },
   }
 
   return enemy
 }
 
-// ------------------------------------------------------------------
-// Creates a simple health bar
-// ------------------------------------------------------------------
 function createHealthBar() {
   const group = new THREE.Group()
 
@@ -339,7 +416,10 @@ function createHealthBar() {
     new THREE.PlaneGeometry(1.6, 0.18),
     new THREE.MeshBasicMaterial({
       color: 0x111111,
-      side: THREE.DoubleSide
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      side: THREE.DoubleSide,
     })
   )
   group.add(bg)
@@ -348,26 +428,22 @@ function createHealthBar() {
     new THREE.PlaneGeometry(1.5, 0.12),
     new THREE.MeshBasicMaterial({
       color: 0x22cc44,
-      side: THREE.DoubleSide
+      transparent: true,
+      opacity: 1,
+      depthTest: false,
+      side: THREE.DoubleSide,
     })
   )
   fill.position.z = 0.001
   group.add(fill)
 
-  return {
-    group,
-    bg,
-    fill,
-    maxWidth: 1.5
-  }
+  group.renderOrder = 999
+
+  return { group, bg, fill, maxWidth: 1.5 }
 }
 
-// ------------------------------------------------------------------
-// Updates the health bar size and color
-// ------------------------------------------------------------------
 function updateHealthBar(healthBar, health, maxHealth) {
   const ratio = Math.max(0, health / maxHealth)
-
   healthBar.fill.scale.x = ratio
   healthBar.fill.position.x = -(healthBar.maxWidth * (1 - ratio)) / 2
 
@@ -380,15 +456,8 @@ function updateHealthBar(healthBar, health, maxHealth) {
   }
 }
 
-// ------------------------------------------------------------------
-// Brief hit flash, then restore original colors
-// ------------------------------------------------------------------
-function flashCow(group, currentTimeoutId, setTimeoutId) {
-  if (currentTimeoutId) {
-    clearTimeout(currentTimeoutId)
-  }
-
-  group.traverse((child) => {
+function flashMeshes(root) {
+  root.traverse((child) => {
     if (!child.isMesh) return
 
     if (!child.userData.originalColor) {
@@ -398,14 +467,28 @@ function flashCow(group, currentTimeoutId, setTimeoutId) {
     child.material.color.set(0xff4444)
   })
 
-  const timeoutId = setTimeout(() => {
-    group.traverse((child) => {
+  setTimeout(() => {
+    root.traverse((child) => {
       if (!child.isMesh) return
       if (!child.userData.originalColor) return
-
       child.material.color.copy(child.userData.originalColor)
     })
   }, 100)
+}
 
-  setTimeoutId(timeoutId)
+function circleIntersectsBoxXZ(position, radius, box) {
+  const closestX = THREE.MathUtils.clamp(position.x, box.min.x, box.max.x)
+  const closestZ = THREE.MathUtils.clamp(position.z, box.min.z, box.max.z)
+
+  const dx = position.x - closestX
+  const dz = position.z - closestZ
+
+  return (dx * dx + dz * dz) < radius * radius
+}
+
+function getPlayerPosition(player, camera) {
+  if (player?.position) return player.position
+  if (player?.getPosition) return player.getPosition()
+  if (camera?.position) return camera.position
+  return new THREE.Vector3()
 }
