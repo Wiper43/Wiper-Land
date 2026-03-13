@@ -22,6 +22,7 @@ export function createTestWorld(scene, audio = {}) {
     entities,
     floatingTexts,
     cowEntity: null,
+    cowEntities: [],
     audio,
     navGrid,
     attackBeams,
@@ -64,10 +65,6 @@ export function createTestWorld(scene, audio = {}) {
       if (!this.isGameOver) {
         for (const entity of entities) {
           if (!entity || entity.isDead) continue
-
-          if (typeof entity.applyPendingKnockback === 'function') {
-            entity.applyPendingKnockback(deltaTime)
-          }
 
           if (typeof entity.update === 'function') {
             entity.update(deltaTime, camera, player)
@@ -116,19 +113,23 @@ export function createTestWorld(scene, audio = {}) {
     },
 
     setCowVolume(volume) {
-      if (!this.cowEntity) return
-
       const safeVolume = Math.max(0, Math.min(1, Number(volume) || 0))
-      this.cowEntity.cowVolume = safeVolume
 
-      if (this.cowEntity.mooSound) {
-        this.cowEntity.mooSound.setVolume(safeVolume)
+      for (const cow of this.cowEntities) {
+        if (!cow || cow.isDead) continue
+        cow.cowVolume = safeVolume
+
+        if (cow.mooSound) {
+          cow.mooSound.setVolume(safeVolume)
+        }
       }
     },
 
     setCowSoundBuffer(buffer) {
-      if (!this.cowEntity) return
-      this.cowEntity.setSoundBuffer(buffer)
+      for (const cow of this.cowEntities) {
+        if (!cow || cow.isDead) continue
+        cow.setSoundBuffer(buffer)
+      }
     },
 
     ensurePlayerState(player) {
@@ -463,9 +464,20 @@ export function createTestWorld(scene, audio = {}) {
     damageable: true,
   })
 
-  const cow = createCowDummy(world, new THREE.Vector3(0, 0, -5), audio)
-  world.cowEntity = cow
-  entities.push(cow)
+  const cowSpawnPositions = [
+    new THREE.Vector3(0, 0, -5),
+    new THREE.Vector3(-10, 0, -10),
+    new THREE.Vector3(0, 0, -12),
+    new THREE.Vector3(10, 0, -10),
+  ]
+
+  for (const spawnPosition of cowSpawnPositions) {
+    const cow = createCowDummy(world, spawnPosition, audio)
+    world.cowEntities.push(cow)
+    entities.push(cow)
+  }
+
+  world.cowEntity = world.cowEntities[0] || null
 
   world.markNavDirty()
 
@@ -553,25 +565,6 @@ function addBlock(
         this.mesh.position.y + this.labelHeight,
         this.mesh.position.z
       )
-    },
-
-    applyKnockback(sourcePosition, strength = 0) {
-      if (!sourcePosition || strength <= 0) return
-
-      const push = new THREE.Vector3(
-        this.mesh.position.x - sourcePosition.x,
-        0,
-        this.mesh.position.z - sourcePosition.z
-      )
-
-      if (push.lengthSq() <= 0.0001) return
-
-      push.normalize().multiplyScalar(strength)
-      this.knockbackVelocity.add(push)
-    },
-
-    applyPendingKnockback(deltaTime) {
-      applySmoothEntityKnockback(deltaTime, this, world.colliders)
     },
 
     takeDamage(amount, info = {}) {
@@ -790,9 +783,6 @@ function createCowDummy(world, position, audio) {
     stuckTimer: 0,
     repathCooldown: 0,
     attackCooldown: 0,
-    knockbackVelocity: new THREE.Vector3(),
-    knockbackDamping: 8.5,
-    knockbackColliderHalf: COW_COLLIDER_HALF.clone(),
 
     get mooSound() {
       return mooSound
@@ -808,31 +798,8 @@ function createCowDummy(world, position, audio) {
       )
     },
 
-    applyKnockback(sourcePosition, strength = 0) {
-      if (!sourcePosition || strength <= 0) return
-
-      const push = new THREE.Vector3(
-        this.mesh.position.x - sourcePosition.x,
-        0,
-        this.mesh.position.z - sourcePosition.z
-      )
-
-      if (push.lengthSq() <= 0.0001) return
-
-      push.normalize().multiplyScalar(strength)
-      this.knockbackVelocity.add(push)
-    },
-
-    applyPendingKnockback(deltaTime) {
-      applySmoothEntityKnockback(deltaTime, this, world.colliders)
-    },
-
     takeDamage(amount, info = {}) {
       if (this.isDead) return
-
-      if (info.sourcePosition) {
-        this.applyKnockback(info.sourcePosition, info.attackData?.knockback ?? 0)
-      }
 
       this.health -= amount
       if (this.health < 0) this.health = 0
@@ -1404,79 +1371,6 @@ function canOccupyKnockbackPosition(position, colliderHalf, colliders, ignoredCo
   return true
 }
 
-
-function applySmoothEntityKnockback(deltaTime, entity, colliders) {
-  if (!entity?.mesh?.position) return
-  if (!entity.knockbackVelocity) {
-    entity.knockbackVelocity = new THREE.Vector3()
-    return
-  }
-
-  if (entity.knockbackVelocity.lengthSq() <= 0.00001) {
-    entity.knockbackVelocity.set(0, 0, 0)
-    return
-  }
-
-  const colliderHalf = entity.knockbackColliderHalf ?? new THREE.Vector3(0.5, 1.0, 0.5)
-  const ignoredColliders = new Set()
-  if (entity.collider) {
-    ignoredColliders.add(entity.collider)
-  }
-
-  const move = entity.knockbackVelocity.clone().multiplyScalar(deltaTime)
-  let moved = false
-
-  const fullTarget = entity.mesh.position.clone().add(move)
-  if (canOccupyKnockbackPosition(fullTarget, colliderHalf, colliders, ignoredColliders)) {
-    entity.mesh.position.copy(fullTarget)
-    moved = true
-  } else {
-    const xTarget = entity.mesh.position.clone().add(new THREE.Vector3(move.x, 0, 0))
-    const zTarget = entity.mesh.position.clone().add(new THREE.Vector3(0, 0, move.z))
-
-    const canMoveX =
-      Math.abs(move.x) > 0.0001 &&
-      canOccupyKnockbackPosition(xTarget, colliderHalf, colliders, ignoredColliders)
-
-    const canMoveZ =
-      Math.abs(move.z) > 0.0001 &&
-      canOccupyKnockbackPosition(zTarget, colliderHalf, colliders, ignoredColliders)
-
-    if (canMoveX && canMoveZ) {
-      if (Math.abs(move.x) >= Math.abs(move.z)) {
-        entity.mesh.position.copy(xTarget)
-      } else {
-        entity.mesh.position.copy(zTarget)
-      }
-      moved = true
-    } else if (canMoveX) {
-      entity.mesh.position.copy(xTarget)
-      moved = true
-    } else if (canMoveZ) {
-      entity.mesh.position.copy(zTarget)
-      moved = true
-    }
-  }
-
-  const damping = Math.max(0, 1 - (entity.knockbackDamping ?? 8.5) * deltaTime)
-  entity.knockbackVelocity.multiplyScalar(damping)
-
-  if (!moved || entity.knockbackVelocity.lengthSq() <= 0.0004) {
-    entity.knockbackVelocity.set(0, 0, 0)
-  }
-
-  if (entity.collider?.box) {
-    entity.collider.box.setFromCenterAndSize(
-      new THREE.Vector3(
-        entity.mesh.position.x,
-        entity.mesh.position.y + colliderHalf.y,
-        entity.mesh.position.z
-      ),
-      new THREE.Vector3(colliderHalf.x * 2, colliderHalf.y * 2, colliderHalf.z * 2)
-    )
-  }
-}
-
 function horizontalDistance(a, b) {
   const dx = b.x - a.x
   const dz = b.z - a.z
@@ -1738,7 +1632,10 @@ function createNavDebug(scene) {
   }
 
   function update(world) {
-    const cow = world.cowEntity
+    const cow =
+      world.cowEntities?.find((entity) => entity && !entity.isDead) ||
+      world.cowEntity
+
     if (!cow || cow.isDead) {
       clear()
       return
