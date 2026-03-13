@@ -8,6 +8,8 @@ import { createUI } from './ui.js'
 import { createCombat } from './combat.js'
 import { createHeldItem } from './heldItem.js'
 import { createBeamVisualSystem } from './beamVisual.js'
+import { updateCow } from "./cowAI.js"
+import { createNavGrid } from "./navGrid.js"
 
 const app = document.getElementById('app')
 
@@ -127,7 +129,7 @@ try {
         logCombatResult(result, 'Left Click')
       }
 
-      // --------------------------------------------------------
+      // --------------------a------------------------------------
       // RIGHT CLICK = SPELLBOOK ATTACK
       // --------------------------------------------------------
       if (input.consumeAltAttack()) {

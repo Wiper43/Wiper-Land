@@ -1,9 +1,18 @@
 import * as THREE from 'three'
+import { createNavGrid } from './navGrid.js'
 
 export function createTestWorld(scene, audio = {}) {
   const colliders = []
   const entities = []
   const floatingTexts = []
+
+  const navGrid = createNavGrid({
+    worldSize: 40,
+    cellSize: 1,
+    origin: new THREE.Vector3(-20, 0, -20),
+    agentRadius: 0.95,
+    maxClimbStep: 1.25,
+  })
 
   const world = {
     scene,
@@ -12,9 +21,21 @@ export function createTestWorld(scene, audio = {}) {
     floatingTexts,
     cowEntity: null,
     audio,
+    navGrid,
+    navDirty: true,
+    navRebuildCooldown: 0,
+    debugNav: true,
+    navDebug: createNavDebug(scene),
 
     update(deltaTime, camera, player) {
       updateFloatingTexts(deltaTime, floatingTexts, scene)
+
+      this.navRebuildCooldown -= deltaTime
+      if (this.navDirty || this.navRebuildCooldown <= 0) {
+        this.navGrid.rebuild(this.colliders)
+        this.navDirty = false
+        this.navRebuildCooldown = 0.5
+      }
 
       for (const entity of entities) {
         if (!entity || entity.isDead) continue
@@ -25,6 +46,16 @@ export function createTestWorld(scene, audio = {}) {
 
         syncEntityUI(entity, camera)
       }
+
+      if (this.debugNav) {
+        this.navDebug.update(this)
+      } else {
+        this.navDebug.clear()
+      }
+    },
+
+    markNavDirty() {
+      this.navDirty = true
     },
 
     spawnFloatingDamage(position, amount, color = '#ffd36b') {
@@ -185,6 +216,8 @@ export function createTestWorld(scene, audio = {}) {
   world.cowEntity = cow
   entities.push(cow)
 
+  world.markNavDirty()
+
   return world
 }
 
@@ -230,6 +263,7 @@ function addBlock(
 
   if (blocksMovement) {
     colliders.push(collider)
+    world.markNavDirty()
   }
 
   let healthText = null
@@ -297,6 +331,7 @@ function addBlock(
         const colliderIndex = colliders.indexOf(this.collider)
         if (colliderIndex !== -1) {
           colliders.splice(colliderIndex, 1)
+          world.markNavDirty()
         }
       }
     },
@@ -308,6 +343,25 @@ function addBlock(
 
 function createCowDummy(world, position, audio) {
   const { scene, colliders } = world
+
+  const COW_COLLIDER_HALF = new THREE.Vector3(1.15, 1.1, 0.7)
+  const COW_AGGRO_RANGE = 18
+  const COW_STOP_DISTANCE = 4.25
+  const COW_MOVE_SPEED = 2.35
+  const COW_TURN_SPEED = 7.5
+  const COW_IDLE_SWAY_SPEED = 2.0
+  const COW_IDLE_SWAY_AMOUNT = 0.02
+  const COW_LEG_SWING_SPEED = 10.5
+  const COW_LEG_SWING_AMOUNT = 0.45
+  const COW_PATH_RECALC_INTERVAL = 1.0
+  const COW_WAYPOINT_REACH_DISTANCE = 1.1
+  const COW_STUCK_TIME = 0.85
+  const COW_STUCK_MOVE_EPSILON = 0.12
+  const COW_PATH_COOLDOWN_AFTER_STUCK = 0.45
+  const COW_IDLE_ROAM_RADIUS = 3.25
+  const COW_IDLE_ROAM_INTERVAL_MIN = 1.5
+  const COW_IDLE_ROAM_INTERVAL_MAX = 3.5
+  const COW_IDLE_ROAM_REACH_DISTANCE = 0.5
 
   const group = new THREE.Group()
 
@@ -339,17 +393,25 @@ function createCowDummy(world, position, audio) {
   nose.position.set(1.95, 1.35, 0)
   group.add(nose)
 
+  const legRoots = []
+
   const legPositions = [
-    [-0.7, 0.55, 0.35],
-    [-0.7, 0.55, -0.35],
     [0.7, 0.55, 0.35],
     [0.7, 0.55, -0.35],
+    [-0.7, 0.55, 0.35],
+    [-0.7, 0.55, -0.35],
   ]
 
   for (const [lx, ly, lz] of legPositions) {
+    const legRoot = new THREE.Group()
+    legRoot.position.set(lx, ly + 0.55, lz)
+
     const leg = makeMesh(new THREE.BoxGeometry(0.22, 1.1, 0.22), blackMat)
-    leg.position.set(lx, ly, lz)
-    group.add(leg)
+    leg.position.set(0, -0.55, 0)
+    legRoot.add(leg)
+
+    group.add(legRoot)
+    legRoots.push(legRoot)
   }
 
   const tail = makeMesh(new THREE.BoxGeometry(0.08, 0.7, 0.08), blackMat)
@@ -368,10 +430,9 @@ function createCowDummy(world, position, audio) {
   group.position.copy(position)
   scene.add(group)
 
-  const colliderHalf = new THREE.Vector3(1.15, 1.1, 0.7)
   const box = new THREE.Box3().setFromCenterAndSize(
     new THREE.Vector3(position.x, position.y + 1.1, position.z),
-    new THREE.Vector3(colliderHalf.x * 2, colliderHalf.y * 2, colliderHalf.z * 2)
+    new THREE.Vector3(COW_COLLIDER_HALF.x * 2, COW_COLLIDER_HALF.y * 2, COW_COLLIDER_HALF.z * 2)
   )
 
   const collider = {
@@ -386,6 +447,9 @@ function createCowDummy(world, position, audio) {
     textColor: '#ffffff',
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     borderColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 2,
+    defaultBorderColor: 'rgba(255,255,255,0.2)',
+    defaultBorderWidth: 2,
     minWorldWidth: 1.7,
     worldHeight: 0.34,
   })
@@ -435,6 +499,22 @@ function createCowDummy(world, position, audio) {
     labelHeight: 3.0,
     moveTime: 0,
     cowVolume: 0.45,
+    aggroRange: COW_AGGRO_RANGE,
+    stopDistance: COW_STOP_DISTANCE,
+    moveSpeed: COW_MOVE_SPEED,
+    path: [],
+    pathIndex: 0,
+    pathRecalcTimer: 0,
+    lastPlayerNavTarget: new THREE.Vector3(),
+    homePosition: position.clone(),
+    idleRoamTarget: null,
+    idleRoamTimer: 0.8,
+    isAggroed: false,
+    debugState: 'idle',
+    debugWaypoint: null,
+    lastPosition: position.clone(),
+    stuckTimer: 0,
+    repathCooldown: 0,
 
     get mooSound() {
       return mooSound
@@ -490,12 +570,377 @@ function createCowDummy(world, position, audio) {
       }
     },
 
-    update(deltaTime) {
+    setAggroState(nextAggro) {
+      if (this.isAggroed === nextAggro) return
+      this.isAggroed = nextAggro
+      updateEntityHealthBorder(this, nextAggro ? 'rgba(255, 70, 70, 0.95)' : null)
+    },
+
+    chooseIdleRoamTarget() {
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const angle = Math.random() * Math.PI * 2
+        const radius = 0.8 + Math.random() * (COW_IDLE_ROAM_RADIUS - 0.8)
+        const candidate = new THREE.Vector3(
+          this.homePosition.x + Math.cos(angle) * radius,
+          this.mesh.position.y,
+          this.homePosition.z + Math.sin(angle) * radius
+        )
+
+        if (!canMoveCowTo(world, this, candidate, COW_COLLIDER_HALF)) continue
+        const cell = world.navGrid.worldToCell(candidate)
+        if (world.navGrid.isBlocked(cell.col, cell.row)) continue
+
+        this.idleRoamTarget = candidate
+        return
+      }
+
+      this.idleRoamTarget = null
+    },
+
+    updateIdleRoam(deltaTime) {
+      this.idleRoamTimer -= deltaTime
+
+      if (!this.idleRoamTarget && this.idleRoamTimer <= 0) {
+        this.chooseIdleRoamTarget()
+        this.idleRoamTimer = randomRange(COW_IDLE_ROAM_INTERVAL_MIN, COW_IDLE_ROAM_INTERVAL_MAX)
+      }
+
+      if (!this.idleRoamTarget) {
+        return false
+      }
+
+      const moveResult = this.moveTowardsPoint(deltaTime, this.idleRoamTarget)
+
+      if (
+        moveResult.reached ||
+        horizontalDistance(this.mesh.position, this.idleRoamTarget) <= COW_IDLE_ROAM_REACH_DISTANCE
+      ) {
+        this.idleRoamTarget = null
+        this.idleRoamTimer = randomRange(COW_IDLE_ROAM_INTERVAL_MIN, COW_IDLE_ROAM_INTERVAL_MAX)
+      }
+
+      if (!moveResult.moved && !moveResult.reached) {
+        this.idleRoamTarget = null
+        this.idleRoamTimer = 0.75
+      }
+
+      return moveResult.moved
+    },
+
+    clearPath() {
+      this.path.length = 0
+      this.pathIndex = 0
+      this.pathRecalcTimer = 0
+      this.debugWaypoint = null
+    },
+
+    animateLegs(deltaTime, moving) {
+      if (legRoots.length === 0) return
+
+      if (moving) {
+        const swing = Math.sin(this.moveTime * COW_LEG_SWING_SPEED) * COW_LEG_SWING_AMOUNT
+        legRoots[0].rotation.z = swing
+        legRoots[1].rotation.z = -swing
+        legRoots[2].rotation.z = -swing
+        legRoots[3].rotation.z = swing
+      } else {
+        const settleSpeed = Math.min(1, deltaTime * 10)
+        for (const legRoot of legRoots) {
+          legRoot.rotation.z += (0 - legRoot.rotation.z) * settleSpeed
+        }
+      }
+    },
+
+    updateStuckState(deltaTime, moved) {
+      const movedDistance = horizontalDistance(this.mesh.position, this.lastPosition)
+
+      if (moved || movedDistance > COW_STUCK_MOVE_EPSILON) {
+        this.stuckTimer = 0
+        this.lastPosition.copy(this.mesh.position)
+        return false
+      }
+
+      this.stuckTimer += deltaTime
+      this.lastPosition.copy(this.mesh.position)
+      return this.stuckTimer >= COW_STUCK_TIME
+    },
+
+    onStuck(player) {
+      this.debugState = 'stuck'
+      this.clearPath()
+      this.repathCooldown = COW_PATH_COOLDOWN_AFTER_STUCK
+
+      if (player?.position) {
+        const newPath = world.navGrid.findPath(this.mesh.position, player.position, {
+          maxSearch: 2500,
+        })
+
+        if (newPath.length > 1) {
+          // Skip the first point if it's too close to avoid spin-at-feet behavior.
+          const firstDistance = horizontalDistance(this.mesh.position, newPath[0])
+          this.path = newPath
+          this.pathIndex = firstDistance <= COW_WAYPOINT_REACH_DISTANCE ? 1 : 0
+          this.debugWaypoint = this.path[this.pathIndex] || null
+        } else {
+          this.path = newPath
+          this.pathIndex = 0
+          this.debugWaypoint = this.path[0] || null
+        }
+
+        this.pathRecalcTimer = COW_PATH_RECALC_INTERVAL
+        this.lastPlayerNavTarget.copy(player.position)
+      }
+    },
+
+    moveTowardsPoint(deltaTime, targetPoint) {
+      const toTarget = new THREE.Vector3(
+        targetPoint.x - this.mesh.position.x,
+        0,
+        targetPoint.z - this.mesh.position.z
+      )
+
+      const distance = toTarget.length()
+      if (distance <= 0.0001) return { moved: false, reached: true }
+
+      toTarget.normalize()
+
+      const moveDistance = Math.min(this.moveSpeed * deltaTime, distance)
+      const moveStep = toTarget.clone().multiplyScalar(moveDistance)
+
+      const targetYaw = Math.atan2(toTarget.x, toTarget.z) - Math.PI / 2
+
+      const fullTarget = this.mesh.position.clone().add(moveStep)
+      if (canMoveCowTo(world, this, fullTarget, COW_COLLIDER_HALF)) {
+        this.mesh.rotation.y = rotateTowardsAngle(
+          this.mesh.rotation.y,
+          targetYaw,
+          COW_TURN_SPEED * deltaTime
+        )
+        this.mesh.position.copy(fullTarget)
+        return {
+          moved: true,
+          reached: distance <= COW_WAYPOINT_REACH_DISTANCE,
+          slideAxis: null,
+        }
+      }
+
+      // Sliding fallback: helps the cow get around 90-degree corners instead of
+      // sitting in place and repathing forever.
+      const xOnlyTarget = this.mesh.position.clone().add(new THREE.Vector3(moveStep.x, 0, 0))
+      const zOnlyTarget = this.mesh.position.clone().add(new THREE.Vector3(0, 0, moveStep.z))
+
+      const canSlideX =
+        Math.abs(moveStep.x) > 0.0001 && canMoveCowTo(world, this, xOnlyTarget, COW_COLLIDER_HALF)
+      const canSlideZ =
+        Math.abs(moveStep.z) > 0.0001 && canMoveCowTo(world, this, zOnlyTarget, COW_COLLIDER_HALF)
+
+      // Prefer the axis with the bigger component toward the target.
+      if (canSlideX || canSlideZ) {
+        let slideTarget = null
+        let slideAxis = null
+
+        if (canSlideX && canSlideZ) {
+          if (Math.abs(moveStep.x) >= Math.abs(moveStep.z)) {
+            slideTarget = xOnlyTarget
+            slideAxis = 'x'
+          } else {
+            slideTarget = zOnlyTarget
+            slideAxis = 'z'
+          }
+        } else if (canSlideX) {
+          slideTarget = xOnlyTarget
+          slideAxis = 'x'
+        } else {
+          slideTarget = zOnlyTarget
+          slideAxis = 'z'
+        }
+
+        const slideDir = new THREE.Vector3(
+          slideTarget.x - this.mesh.position.x,
+          0,
+          slideTarget.z - this.mesh.position.z
+        )
+
+        if (slideDir.lengthSq() > 0.0001) {
+          slideDir.normalize()
+          const slideYaw = Math.atan2(slideDir.x, slideDir.z) - Math.PI / 2
+          this.mesh.rotation.y = rotateTowardsAngle(
+            this.mesh.rotation.y,
+            slideYaw,
+            COW_TURN_SPEED * deltaTime
+          )
+        }
+
+        this.mesh.position.copy(slideTarget)
+        return {
+          moved: true,
+          reached: horizontalDistance(this.mesh.position, targetPoint) <= COW_WAYPOINT_REACH_DISTANCE,
+          slideAxis,
+        }
+      }
+
+      return { moved: false, reached: false, slideAxis: null }
+    },
+
+    update(deltaTime, camera, player) {
       if (this.isDead) return
 
       this.moveTime += deltaTime
-      const sway = Math.sin(this.moveTime * 2.0) * 0.02
-      this.mesh.rotation.y = sway
+      this.pathRecalcTimer -= deltaTime
+      this.repathCooldown -= deltaTime
+      this.debugState = 'idle'
+      this.debugWaypoint = null
+
+      let isMoving = false
+      let attemptedMove = false
+
+      if (player?.position) {
+        const flatToPlayer = new THREE.Vector3(
+          player.position.x - this.mesh.position.x,
+          0,
+          player.position.z - this.mesh.position.z
+        )
+
+        const distanceToPlayer = flatToPlayer.length()
+        const withinAggro = distanceToPlayer <= this.aggroRange
+        const withinStopDistance = distanceToPlayer <= this.stopDistance
+        this.setAggroState(withinAggro)
+
+        if (withinAggro && !withinStopDistance) {
+          this.debugState = 'aggro'
+          this.idleRoamTarget = null
+
+          const directClear = world.navGrid.hasLineOfSight(this.mesh.position, player.position)
+          const playerMovedEnough =
+            this.lastPlayerNavTarget.distanceToSquared(player.position) > 1.5 * 1.5
+
+          if (directClear) {
+            this.debugState = 'direct-chase'
+            this.clearPath()
+            attemptedMove = true
+            const directMove = this.moveTowardsPoint(deltaTime, player.position)
+            isMoving = directMove.moved
+            if (directMove.slideAxis) {
+              this.debugState = `direct-slide-${directMove.slideAxis}`
+            }
+            this.debugWaypoint = player.position.clone()
+          } else {
+            const shouldRepath =
+              this.repathCooldown <= 0 &&
+              (
+                this.path.length === 0 ||
+                this.pathIndex >= this.path.length ||
+                this.pathRecalcTimer <= 0 ||
+                playerMovedEnough
+              )
+
+            if (shouldRepath) {
+              this.path = world.navGrid.findPath(this.mesh.position, player.position, {
+                maxSearch: 2500,
+              })
+              this.pathIndex = 0
+
+              while (
+                this.pathIndex < this.path.length &&
+                horizontalDistance(this.mesh.position, this.path[this.pathIndex]) <= COW_WAYPOINT_REACH_DISTANCE
+              ) {
+                this.pathIndex++
+              }
+
+              this.pathRecalcTimer = COW_PATH_RECALC_INTERVAL
+              this.lastPlayerNavTarget.copy(player.position)
+            }
+
+            this.debugState = 'pathing'
+
+            while (this.pathIndex < this.path.length) {
+              const waypoint = this.path[this.pathIndex]
+              this.debugWaypoint = waypoint
+
+              const flatDistance = horizontalDistance(this.mesh.position, waypoint)
+              if (flatDistance <= COW_WAYPOINT_REACH_DISTANCE) {
+                this.pathIndex++
+                continue
+              }
+
+              attemptedMove = true
+              const moveResult = this.moveTowardsPoint(deltaTime, waypoint)
+              isMoving = moveResult.moved
+
+              if (moveResult.slideAxis) {
+                this.debugState = `path-slide-${moveResult.slideAxis}`
+              }
+
+              if (moveResult.reached) {
+                this.pathIndex++
+              }
+
+              break
+            }
+
+            if (!isMoving && attemptedMove && this.updateStuckState(deltaTime, isMoving)) {
+              this.onStuck(player)
+            } else if (isMoving) {
+              this.stuckTimer = 0
+            }
+
+            if (!isMoving && this.pathIndex >= this.path.length && this.repathCooldown <= 0 && this.pathRecalcTimer <= 0) {
+              this.path = world.navGrid.findPath(this.mesh.position, player.position, {
+                maxSearch: 2500,
+              })
+              this.pathIndex = 0
+              this.pathRecalcTimer = COW_PATH_RECALC_INTERVAL
+              this.lastPlayerNavTarget.copy(player.position)
+            }
+          }
+        } else if (withinStopDistance) {
+          this.debugState = 'attack-range'
+          this.idleRoamTarget = null
+          this.clearPath()
+          this.stuckTimer = 0
+
+          const faceOnly = new THREE.Vector3(
+            player.position.x - this.mesh.position.x,
+            0,
+            player.position.z - this.mesh.position.z
+          )
+
+          if (faceOnly.lengthSq() > 0.0001) {
+            faceOnly.normalize()
+            const targetYaw = Math.atan2(faceOnly.x, faceOnly.z) - Math.PI / 2
+            this.mesh.rotation.y = rotateTowardsAngle(
+              this.mesh.rotation.y,
+              targetYaw,
+              COW_TURN_SPEED * deltaTime
+            )
+          }
+        } else {
+          this.debugState = 'idle-roam'
+          this.setAggroState(false)
+          this.clearPath()
+          this.stuckTimer = 0
+          isMoving = this.updateIdleRoam(deltaTime)
+          if (this.idleRoamTarget) this.debugWaypoint = this.idleRoamTarget
+        }
+      } else {
+        this.debugState = 'idle-roam'
+        this.setAggroState(false)
+        this.clearPath()
+        this.stuckTimer = 0
+        isMoving = this.updateIdleRoam(deltaTime)
+        if (this.idleRoamTarget) this.debugWaypoint = this.idleRoamTarget
+      }
+
+      if (!attemptedMove) {
+        this.stuckTimer = 0
+      }
+
+      if (!isMoving) {
+        const sway = Math.sin(this.moveTime * COW_IDLE_SWAY_SPEED) * COW_IDLE_SWAY_AMOUNT
+        this.mesh.rotation.y += sway * deltaTime * 6
+      }
+
+      this.animateLegs(deltaTime, isMoving)
 
       const center = new THREE.Vector3(
         this.mesh.position.x,
@@ -504,12 +949,46 @@ function createCowDummy(world, position, audio) {
       )
       this.collider.box.setFromCenterAndSize(
         center,
-        new THREE.Vector3(colliderHalf.x * 2, colliderHalf.y * 2, colliderHalf.z * 2)
+        new THREE.Vector3(COW_COLLIDER_HALF.x * 2, COW_COLLIDER_HALF.y * 2, COW_COLLIDER_HALF.z * 2)
       )
     },
   }
 
   return entity
+}
+
+function horizontalDistance(a, b) {
+  const dx = b.x - a.x
+  const dz = b.z - a.z
+  return Math.sqrt(dx * dx + dz * dz)
+}
+
+function canMoveCowTo(world, entity, targetPosition, colliderHalf) {
+  const targetBox = new THREE.Box3().setFromCenterAndSize(
+    new THREE.Vector3(targetPosition.x, targetPosition.y + 1.1, targetPosition.z),
+    new THREE.Vector3(colliderHalf.x * 2, colliderHalf.y * 2, colliderHalf.z * 2)
+  )
+
+  for (const collider of world.colliders) {
+    if (!collider || collider === entity.collider) continue
+    if (!targetBox.intersectsBox(collider.box)) continue
+    return false
+  }
+
+  return true
+}
+
+function rotateTowardsAngle(current, target, maxStep) {
+  let delta = target - current
+
+  while (delta > Math.PI) delta -= Math.PI * 2
+  while (delta < -Math.PI) delta += Math.PI * 2
+
+  if (Math.abs(delta) <= maxStep) {
+    return target
+  }
+
+  return current + Math.sign(delta) * maxStep
 }
 
 function syncEntityUI(entity, camera) {
@@ -595,6 +1074,8 @@ function createTextSprite(
     textColor = '#ffffff',
     backgroundColor = 'rgba(0, 0, 0, 0.6)',
     borderColor = 'rgba(255,255,255,0.2)',
+    borderWidth = 2,
+    defaultBorderWidth = 2,
     minWorldWidth = 1.0,
     worldHeight = 0.35,
     paddingX = 18,
@@ -609,8 +1090,9 @@ function createTextSprite(
 
   const metrics = context.measureText(text)
   const textWidth = Math.ceil(metrics.width)
-  const width = textWidth + paddingX * 2
-  const height = fontSize + paddingY * 2
+  const borderPad = Math.max(0, Math.ceil(borderWidth))
+  const width = textWidth + paddingX * 2 + borderPad * 2
+  const height = fontSize + paddingY * 2 + borderPad * 2
 
   canvas.width = width
   canvas.height = height
@@ -623,7 +1105,7 @@ function createTextSprite(
   context.fillStyle = backgroundColor
   context.fill()
 
-  context.lineWidth = 2
+  context.lineWidth = borderWidth
   context.strokeStyle = borderColor
   context.stroke()
 
@@ -653,11 +1135,15 @@ function createTextSprite(
     textColor,
     backgroundColor,
     borderColor,
+    borderWidth,
+    defaultBorderColor: arguments[1]?.defaultBorderColor || borderColor,
+    defaultBorderWidth: arguments[1]?.defaultBorderWidth || defaultBorderWidth || borderWidth,
     minWorldWidth,
     worldHeight,
     paddingX,
     paddingY,
   }
+  sprite.userData.currentText = text
 
   return sprite
 }
@@ -685,6 +1171,133 @@ function disposeTextSprite(sprite) {
     if (sprite.material.map) sprite.material.map.dispose()
     sprite.material.dispose()
   }
+}
+
+
+function createNavDebug(scene) {
+  const group = new THREE.Group()
+  scene.add(group)
+
+  const pathMaterial = new THREE.LineBasicMaterial({ color: 0x55ff55 })
+  const losMaterial = new THREE.LineBasicMaterial({ color: 0x4aa3ff })
+
+  let pathLine = null
+  let losLine = null
+  let waypointMesh = null
+  let stuckText = null
+
+  function clearObject(obj) {
+    if (!obj) return null
+    group.remove(obj)
+    if (obj.geometry) obj.geometry.dispose()
+    if (obj.material) obj.material.dispose?.()
+    return null
+  }
+
+  function update(world) {
+    const cow = world.cowEntity
+    if (!cow || cow.isDead) {
+      clear()
+      return
+    }
+
+    pathLine = clearObject(pathLine)
+    losLine = clearObject(losLine)
+    waypointMesh = clearObject(waypointMesh)
+
+    if (cow.path && cow.pathIndex < cow.path.length) {
+      const points = [cow.mesh.position.clone().add(new THREE.Vector3(0, 0.2, 0))]
+      for (let i = cow.pathIndex; i < cow.path.length; i++) {
+        points.push(cow.path[i].clone().add(new THREE.Vector3(0, 0.2, 0)))
+      }
+      if (points.length >= 2) {
+        pathLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), pathMaterial.clone())
+        group.add(pathLine)
+      }
+    }
+
+    if (cow.debugWaypoint) {
+      waypointMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.22, 10, 10),
+        new THREE.MeshBasicMaterial({ color: 0xffdd33 })
+      )
+      waypointMesh.position.copy(cow.debugWaypoint).add(new THREE.Vector3(0, 0.35, 0))
+      group.add(waypointMesh)
+
+      losLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([
+          cow.mesh.position.clone().add(new THREE.Vector3(0, 0.3, 0)),
+          cow.debugWaypoint.clone().add(new THREE.Vector3(0, 0.3, 0)),
+        ]),
+        losMaterial.clone()
+      )
+      group.add(losLine)
+    }
+
+    if (cow.debugState === 'stuck') {
+      if (!stuckText) {
+        stuckText = createTextSprite('STUCK', {
+          fontSize: 34,
+          textColor: '#ff6666',
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          borderColor: 'rgba(255, 70, 70, 0.95)',
+          borderWidth: 5,
+          defaultBorderColor: 'rgba(255, 70, 70, 0.95)',
+          defaultBorderWidth: 5,
+          minWorldWidth: 1.25,
+          worldHeight: 0.3,
+        })
+        group.add(stuckText)
+      }
+      stuckText.position.copy(cow.mesh.position).add(new THREE.Vector3(0, 4.0, 0))
+    } else if (stuckText) {
+      group.remove(stuckText)
+      disposeTextSprite(stuckText)
+      stuckText = null
+    }
+  }
+
+  function clear() {
+    pathLine = clearObject(pathLine)
+    losLine = clearObject(losLine)
+    waypointMesh = clearObject(waypointMesh)
+    if (stuckText) {
+      group.remove(stuckText)
+      disposeTextSprite(stuckText)
+      stuckText = null
+    }
+  }
+
+  return { update, clear, group }
+}
+
+function updateEntityHealthBorder(entity, borderColor = null) {
+  if (!entity?.healthText) return
+
+  const options = { ...(entity.healthText.userData?.textOptions || {}) }
+  const fallback = options.defaultBorderColor || 'rgba(255,255,255,0.2)'
+  options.borderColor = borderColor || fallback
+  options.borderWidth = borderColor ? ((options.defaultBorderWidth || 2) * 4) : (options.defaultBorderWidth || 2)
+
+  const label =
+    entity.healthText.userData?.currentText ||
+    (entity.maxHealth !== undefined ? `${entity.health} / ${entity.maxHealth}` : '')
+
+  const oldMaterial = entity.healthText.material
+  const oldTexture = oldMaterial?.map
+
+  const newSprite = createTextSprite(label, options)
+
+  entity.healthText.material = newSprite.material
+  entity.healthText.scale.copy(newSprite.scale)
+  entity.healthText.userData = newSprite.userData
+
+  if (oldTexture) oldTexture.dispose()
+  if (oldMaterial) oldMaterial.dispose()
+}
+
+function randomRange(min, max) {
+  return min + Math.random() * (max - min)
 }
 
 function roundRect(ctx, x, y, width, height, radius) {

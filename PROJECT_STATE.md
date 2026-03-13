@@ -1,300 +1,247 @@
 # Wiper Land – Project State
 
-Engine:
-Three.js + Vite
+## Project
+Wiper Land browser game prototype
 
-Phase 1 Completed:
-Movement sandbox with:
+## Stack
+- Three.js
+- Vite
+- JavaScript
+
+## Current Focus
+Phase 2 combat prototype moving into **Phase 2.5 mini-game**
+
+---
+
+## Current Workspace Summary
+
+The project is currently a **first-person combat sandbox** with a working movement/controller foundation and an early spellcasting presentation layer.
+
+### Core engine and player systems working
 - WASD movement
-- mouse look
+- mouse look / pointer lock
 - jump + gravity
-- capsule collision
-- box collision
-- test arena
+- arena collision
+- test arena rendering
+- world update loop
+- basic UI / crosshair
 
-Core Files:
+### Combat systems currently working
+- raycast-based combat
+- left click direct attack
+- right click spell attacks
+- cooldown-based attack usage
+- damage application to enemies
+- combat result flow through `combat.js`
 
-main.js – game loop
-renderer.js – scene setup
-world.js – arena + colliders
-player.js – controller + physics
-input.js – keyboard + mouse
-ui.js – HUD
+### Current spell presentation layer
+- floating spellbook viewmodel attached to the camera
+- spellbook sits on the lower-right/front-right of the screen
+- spellbook has idle bob
+- spellbook has a quick flick-up cast animation
+- world-space beam visuals can fire from the spellbook
+- beam visuals are **visual only**
+- beam visuals currently have **no collision**
+- gameplay hit detection is still handled by **raycasting**, not the visible beam
 
-Next Phase:
-Phase 2 – Combat Prototype
+### Enemy systems currently working
+- cow dummy enemy exists
+- cow can take damage
+- cow health bar exists
+- cow can be removed on death
 
-Goals:
-- raycast attack system
-- ability framework
-- damage system
-- enemy dummy
+---
 
+## Current File / System Layout
 
-phase 2 part 2:
-Wiper Land — Project State (Start of Phase 2)
+### Main gameplay files
+- `src/main.js` → main loop and system wiring
+- `src/renderer.js` → scene, camera, renderer
+- `src/world.js` → arena/world objects
+- `src/player.js` → movement/controller logic
+- `src/input.js` → keyboard/mouse input
+- `src/combat.js` → raycast combat logic
+- `src/ui.js` → HUD and crosshair
+- `src/heldItem.js` → local floating weapon/spellbook viewmodel
+- `src/beamVisual.js` → visual-only world-space beam system
 
-Project: Wiper Land browser game prototype
-
-Stack:
-
-Three.js
-
-Vite
-
-JavaScript
-
-Current Branch:
-
-phase2-combat
-
-Previous Stable Branch:
-
-phase1-collision2.0
-Core Systems Working
-Movement Sandbox (Phase 1 complete)
-
-Player controller supports:
-
-WASD movement
-
-Mouse look (pointer lock)
-
-Jump
-
-Gravity
-
-Capsule-style collision
-
-Box / wall collision
-
-Floor collision
-
-Acceleration + friction movement
-
-Player cannot walk through blocks or arena walls.
-
-Combat Prototype (Phase 2 progress)
-
-Basic combat system implemented:
-
-Raycast Attack
-
-Left click performs:
-
-camera center raycast
+### Current flow
+`main.js`
 ↓
-range limited to 3 units
+player update
 ↓
-checks walls/blocks first
+held item update
 ↓
-enemy takes damage if visible
-
-Rules:
-
-Attack range = 3 world units
-
-Blocks block attacks
-
-Nearest hit object receives damage
-
-Enemy System
-
-Currently implemented enemy:
-
-Cow Dummy
-
-Features:
-
-Built from box meshes
-
-Health: 50 HP
-
-Health bar above head
-
-Health bar shrinks with damage
-
-Color flash on hit
-
-Removed from scene on death
-
-Movement behavior:
-
-Random wandering
-
-Picks new direction every ~2 seconds
-
-Movement speed ≈ 1.2 units/sec
-
-Automatically rotates to movement direction
-
-Clamped inside arena bounds
-
-Arena bounds:
-
-x: -18 → 18
-z: -18 → 18
-Arena World
-
-World contains:
-
-Floor plane
-
-Grid helper
-
-Arena walls
-
-Test blocks
-
-Blocks currently:
-
-static
-
-collidable
-
-not destructible (yet)
-
-UI
-
-Simple UI implemented:
-
-Crosshair:
-
-+
-
-Controls hint:
-
-WASD move
-Space jump
-Left click attack
-File Structure
-src/
-
-main.js
-renderer.js
-world.js
-player.js
-input.js
-ui.js
-physics.js (unused)
-
-Main loop flow:
-
-animate()
-   ↓
-player.update()
-   ↓
-enemy.update()
-   ↓
-render()
-Combat Pipeline
-mouse click
+beam visual update
 ↓
-raycast from camera
+world update
 ↓
-check blockers
+render
+
+### Combat flow
+input
 ↓
-check enemies
+combat.js attack call
 ↓
-apply damage
+raycast resolves hit / miss
 ↓
-update health bar
+damage applied if valid
 ↓
-enemy death
-Next Planned Systems
+held item cast animation plays
+↓
+world-space beam visual plays
 
-Next milestone features:
+---
 
-1️⃣ Destructible Blocks
+## Important Design Rules Currently Chosen
 
-Blocks gain:
+### Gameplay truth
+- raycasting decides hits
+- raycasting decides hit distance
+- raycasting decides damage
 
-health
-takeDamage()
-destroy()
+### Presentation only
+- floating spellbook is visual only
+- beam visuals are visual only
+- equipped held item has no collision
+- visible beam does not determine gameplay
 
-Attacks should damage nearest object:
+This separation is intentional so the project scales better into:
+- more weapons
+- AI enemies
+- remote players
+- future beam upgrades
+- multiplayer visibility later
 
-enemy OR block
+---
 
-This enables:
+## Phase 2 Completed / In Progress Summary
 
-breakable cover
-
-tactical positioning
-
-more Diablo-style combat feel
-
-2️⃣ Hit Feedback
-
-Add:
-
-hit marker
-
-floating damage numbers
-
-sound / particle effects
-
-3️⃣ Ability System
-
-First real ability:
-
-Firebolt projectile
-
-Ability structure idea:
-
-abilities/
-  firebolt.js
-  dash.js
-  shockwave.js
-4️⃣ Enemy AI (later)
-
-Future enemy behavior:
-
-aggro player
-
-chase player
-
-attack player
-
-avoid obstacles
-
-Current Combat Feel Goal
-
-Target combat style:
-
-Diablo abilities
-+
-Overwatch aiming
-
-Meaning:
-
-first-person targeting
-
-abilities on cooldown
-
-skillshots and projectiles
-
-movement still matters
-
-Controls
-W A S D  → move
-Mouse    → look
-Space    → jump
-LeftClick → basic attack
-Next Chat Starting Prompt
-
-Paste this in the next chat:
-
-Continuing Wiper Land Phase 2 combat prototype.
-
-Current state:
+### Phase 2 foundation complete
 - movement sandbox complete
-- raycast attack working
-- moving cow dummy enemy
-- health bars implemented
-- attack range = 3 units
-- walls block attacks
+- combat system exists
+- attacks can damage enemies
+- cow dummy enemy exists
+- spellbook viewmodel exists
+- visual world beam exists
 
-Next feature:
-destructible blocks.
+### Beam status
+Beams are currently in an **early presentation state**:
+- visual beam exists
+- no collision on beam visual
+- actual attack logic still uses raycasts
+- current beam implementation is acceptable for now
+- deeper beam improvements are postponed until later
+
+---
+
+# Phase 2.5 – Mini-Game Goal
+
+Create a combat mini-game where **cows attack the player with their own beams** at **half the player’s beam range**.
+
+This phase is about making combat feel like an actual playable loop instead of a sandbox test.
+
+## Phase 2.5 goals
+
+### 1. Add player hitpoints
+The player needs:
+- max HP
+- current HP
+- damage intake
+- death or fail-state handling later
+- UI display for player health
+
+### 2. Make cows aggro and move toward the player
+Cows should:
+- detect the player
+- move toward the player
+- stop at reasonable attack distance
+- no longer behave like random dummies in this mode
+
+### 3. Give cows beam attacks
+Cow attacks should:
+- use the same general combat philosophy as the player
+- visually fire beams toward the player
+- have **half the range of the player’s beam**
+- damage the player through game logic, not beam collision
+
+### 4. Add cow-to-cow collision / bumping
+Cows should:
+- not overlap into one blob
+- push/bump each other when touching
+- feel like separate bodies in the arena
+
+---
+
+## Phase 2.5 gameplay loop target
+
+Desired mini-game loop:
+
+player enters arena
+↓
+cows detect player
+↓
+cows move toward player
+↓
+cows bunch up and bump each other instead of stacking
+↓
+cows fire shorter-range beams at player
+↓
+player loses HP when hit
+↓
+player fights back with current beam/raycast combat
+
+This phase should prove:
+- player can be attacked
+- enemies can chase
+- enemies can use ranged attacks
+- multiple enemies can exist together physically
+
+---
+
+## Recommended Build Order for Phase 2.5
+
+### Step 1
+Add **player HP system**
+- player health data
+- damage function
+- UI health display
+
+### Step 2
+Upgrade cows from dummy behavior to **chase behavior**
+- move toward player
+- attack distance check
+
+### Step 3
+Add **cow beam attack logic**
+- shorter than player beam range
+- damage player
+- visual beam only
+
+### Step 4
+Add **cow-to-cow separation / bump collision**
+- prevent overlap
+- simple push apart behavior
+
+---
+
+## Immediate Next Coding Tasks
+
+1. add player hitpoints
+2. add cow aggro/chase
+3. add cow beam attack at half player range
+4. add cow bump collision with other cows
+
+---
+
+## Short Reminder of Current Direction
+
+Wiper Land is currently evolving from:
+
+**movement sandbox**
+into
+**combat prototype**
+and now into
+**a small combat encounter**
+
+Phase 2.5 is the first step where the game starts to feel like a real playable combat scenario rather than a test room.
