@@ -6,7 +6,6 @@ export function createTestWorld(scene, audio = {}) {
   const entities = []
   const floatingTexts = []
   const attackBeams = []
-  const playerDamageSound = createBrowserSound('/sounds/take-damage-sound.mp3')
 
   const navGrid = createNavGrid({
     worldSize: 40,
@@ -25,7 +24,6 @@ export function createTestWorld(scene, audio = {}) {
     audio,
     navGrid,
     attackBeams,
-    playerDamageSound,
     navDirty: true,
     navRebuildCooldown: 0,
     debugNav: true,
@@ -38,7 +36,6 @@ export function createTestWorld(scene, audio = {}) {
       health: 100,
       ui: null,
       initialized: false,
-      knockbackVelocity: new THREE.Vector3(),
     },
 
     update(deltaTime, camera, player) {
@@ -51,7 +48,6 @@ export function createTestWorld(scene, audio = {}) {
 
       updateFloatingTexts(deltaTime, floatingTexts, scene)
       updateAttackBeams(deltaTime, attackBeams, scene)
-      this.applyPlayerKnockback(deltaTime, player)
       this.updatePlayerUI()
 
       this.navRebuildCooldown -= deltaTime
@@ -133,7 +129,6 @@ export function createTestWorld(scene, audio = {}) {
       if (player.maxHealth == null) player.maxHealth = 100
       if (player.health == null) player.health = 100
       if (player.isDead == null) player.isDead = false
-      if (!player.knockbackVelocity) player.knockbackVelocity = new THREE.Vector3()
 
       this.playerState.maxHealth = player.maxHealth
       this.playerState.health = player.health
@@ -200,7 +195,7 @@ export function createTestWorld(scene, audio = {}) {
       this.playerState.health = player.health
       this.playerState.maxHealth = player.maxHealth ?? 100
 
-      if (sourcePosition && player.position && player.knockbackVelocity) {
+      if (sourcePosition && player.position) {
         const push = new THREE.Vector3(
           player.position.x - sourcePosition.x,
           0,
@@ -209,17 +204,14 @@ export function createTestWorld(scene, audio = {}) {
 
         if (push.lengthSq() > 0.0001) {
           push.normalize().multiplyScalar(pushStrength)
-          player.knockbackVelocity.add(push)
-          this.playerState.knockbackVelocity.copy(player.knockbackVelocity)
-        }
-      }
 
-      if (this.playerDamageSound) {
-        try {
-          this.playerDamageSound.currentTime = 0
-          this.playerDamageSound.play()
-        } catch (err) {
-          console.warn('Could not play player damage sound:', err)
+          const pushedPosition = player.position.clone().add(push)
+          player.position.copy(pushedPosition)
+
+          if (player.velocity) {
+            player.velocity.x = (player.velocity.x || 0) + push.x * 2.1
+            player.velocity.z = (player.velocity.z || 0) + push.z * 2.1
+          }
         }
       }
 
@@ -228,22 +220,6 @@ export function createTestWorld(scene, audio = {}) {
         this.playerState.health = 0
         this.triggerGameOver()
       }
-    },
-
-    applyPlayerKnockback(deltaTime, player) {
-      if (!player?.position || !player?.knockbackVelocity || this.isGameOver) return
-
-      applySmoothKnockbackStep({
-        position: player.position,
-        velocity: player.knockbackVelocity,
-        deltaTime,
-        colliders: this.colliders,
-        colliderHalf: getPlayerKnockbackHalf(player),
-        friction: KNOCKBACK_FRICTION,
-        dynamicColliderToIgnore: player.collider || null,
-      })
-
-      this.playerState.knockbackVelocity.copy(player.knockbackVelocity)
     },
 
     spawnAttackBeam(fromPosition, toPosition, color = 0xff4444, life = 0.18) {
@@ -617,7 +593,6 @@ function createCowDummy(world, position, audio) {
   const COW_ATTACK_COOLDOWN = 1.1
   const COW_ATTACK_PUSH = 1.45
   const COW_ATTACK_BEAM_LIFE = 0.18
-  const KNOCKBACK_FRICTION = 10.5
   const COW_IDLE_ROAM_RADIUS = 3.25
   const COW_IDLE_ROAM_INTERVAL_MIN = 1.5
   const COW_IDLE_ROAM_INTERVAL_MAX = 3.5
@@ -754,7 +729,6 @@ function createCowDummy(world, position, audio) {
     maxHealth: 50,
     isDead: false,
     canTakeDamage: true,
-    isLiving: true,
     blocksAttack: true,
     healthText: healthBar,
     labelHeight: 3.0,
@@ -777,7 +751,6 @@ function createCowDummy(world, position, audio) {
     stuckTimer: 0,
     repathCooldown: 0,
     attackCooldown: 0,
-    knockbackVelocity: new THREE.Vector3(),
 
     get mooSound() {
       return mooSound
@@ -804,13 +777,6 @@ function createCowDummy(world, position, audio) {
       const damagePos = info.hitPoint
         ? info.hitPoint.clone().add(new THREE.Vector3(0, 0.45, 0))
         : this.getAnchorPosition()
-
-      if (this.isLiving) {
-        const knockbackDirection = getKnockbackDirection(this.mesh.position, info)
-        if (knockbackDirection) {
-          this.knockbackVelocity.add(knockbackDirection.multiplyScalar(0.95))
-        }
-      }
 
       world.spawnFloatingDamage(damagePos, amount, '#ffb347')
       updateEntityHealthText(this, 'Cow HP')
@@ -1059,21 +1025,10 @@ function createCowDummy(world, position, audio) {
       this.pathRecalcTimer -= deltaTime
       this.repathCooldown -= deltaTime
       this.attackCooldown -= deltaTime
-
-      const knockbackMoved = applySmoothKnockbackStep({
-        position: this.mesh.position,
-        velocity: this.knockbackVelocity,
-        deltaTime,
-        colliders: world.colliders,
-        colliderHalf: COW_COLLIDER_HALF,
-        friction: KNOCKBACK_FRICTION,
-        dynamicColliderToIgnore: this.collider,
-      })
-
-      this.debugState = knockbackMoved ? 'knockback' : 'idle'
+      this.debugState = 'idle'
       this.debugWaypoint = null
 
-      let isMoving = knockbackMoved
+      let isMoving = false
       let attemptedMove = false
 
       if (player?.position) {
@@ -1088,9 +1043,7 @@ function createCowDummy(world, position, audio) {
         const withinStopDistance = distanceToPlayer <= this.stopDistance
         this.setAggroState(withinAggro)
 
-        if (knockbackMoved) {
-          this.debugState = 'knockback'
-        } else if (withinAggro && !withinStopDistance) {
+        if (withinAggro && !withinStopDistance) {
           this.debugState = 'aggro'
           this.idleRoamTarget = null
 
@@ -1489,117 +1442,6 @@ function disposeTextSprite(sprite) {
   }
 }
 
-
-
-function createBrowserSound(src) {
-  if (typeof Audio === 'undefined') return null
-  const audio = new Audio(src)
-  audio.preload = 'auto'
-  return audio
-}
-
-function getKnockbackDirection(targetPosition, info = {}) {
-  const attackerPosition = info.attackerPosition || info.sourcePosition || null
-  const hitPoint = info.hitPoint || null
-  const from = attackerPosition || hitPoint
-
-  if (!from) return null
-
-  const dir = new THREE.Vector3(
-    targetPosition.x - from.x,
-    0,
-    targetPosition.z - from.z
-  )
-
-  if (dir.lengthSq() <= 0.0001) return null
-  return dir.normalize()
-}
-
-function getPlayerKnockbackHalf(player) {
-  if (player?.collider?.box) {
-    const size = new THREE.Vector3()
-    player.collider.box.getSize(size)
-    return size.multiplyScalar(0.5)
-  }
-
-  return new THREE.Vector3(0.38, 0.9, 0.38)
-}
-
-function canOccupyPosition(position, colliderHalf, colliders, dynamicColliderToIgnore = null) {
-  const targetBox = new THREE.Box3().setFromCenterAndSize(
-    new THREE.Vector3(position.x, position.y + colliderHalf.y, position.z),
-    new THREE.Vector3(colliderHalf.x * 2, colliderHalf.y * 2, colliderHalf.z * 2)
-  )
-
-  for (const collider of colliders) {
-    if (!collider || collider === dynamicColliderToIgnore) continue
-    if (!targetBox.intersectsBox(collider.box)) continue
-    return false
-  }
-
-  return true
-}
-
-function applySmoothKnockbackStep({
-  position,
-  velocity,
-  deltaTime,
-  colliders,
-  colliderHalf,
-  friction = 10.5,
-  dynamicColliderToIgnore = null,
-}) {
-  if (!position || !velocity || !colliderHalf) return false
-
-  if (velocity.lengthSq() <= 0.00001) {
-    velocity.set(0, 0, 0)
-    return false
-  }
-
-  const move = velocity.clone().multiplyScalar(deltaTime)
-  let moved = false
-
-  const fullTarget = position.clone().add(move)
-  if (canOccupyPosition(fullTarget, colliderHalf, colliders, dynamicColliderToIgnore)) {
-    position.copy(fullTarget)
-    moved = true
-  } else {
-    const xTarget = position.clone().add(new THREE.Vector3(move.x, 0, 0))
-    const zTarget = position.clone().add(new THREE.Vector3(0, 0, move.z))
-
-    const canMoveX =
-      Math.abs(move.x) > 0.0001 && canOccupyPosition(xTarget, colliderHalf, colliders, dynamicColliderToIgnore)
-    const canMoveZ =
-      Math.abs(move.z) > 0.0001 && canOccupyPosition(zTarget, colliderHalf, colliders, dynamicColliderToIgnore)
-
-    if (canMoveX && canMoveZ) {
-      if (Math.abs(move.x) >= Math.abs(move.z)) {
-        position.copy(xTarget)
-      } else {
-        position.copy(zTarget)
-      }
-      moved = true
-    } else if (canMoveX) {
-      position.copy(xTarget)
-      moved = true
-    } else if (canMoveZ) {
-      position.copy(zTarget)
-      moved = true
-    } else {
-      velocity.set(0, 0, 0)
-      return false
-    }
-  }
-
-  const damping = Math.max(0, 1 - friction * deltaTime)
-  velocity.multiplyScalar(damping)
-
-  if (velocity.lengthSq() <= 0.0004) {
-    velocity.set(0, 0, 0)
-  }
-
-  return moved
-}
 
 function createNavDebug(scene) {
   const group = new THREE.Group()
