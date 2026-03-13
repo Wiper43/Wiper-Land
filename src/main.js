@@ -6,6 +6,8 @@ import { createInput } from './input.js'
 import { createPlayer } from './player.js'
 import { createUI } from './ui.js'
 import { createCombat } from './combat.js'
+import { createHeldItem } from './heldItem.js'
+import { createBeamVisualSystem } from './beamVisual.js'
 
 const app = document.getElementById('app')
 
@@ -30,6 +32,9 @@ try {
     camera: game.camera,
     world,
   })
+  const heldItem = createHeldItem(game.camera)
+  const beamVisuals = createBeamVisualSystem(game.scene)
+  const tempAimDirection = new THREE.Vector3()
 
   // ============================================================
   // LOAD COW AUDIO
@@ -105,6 +110,8 @@ try {
 
     try {
       player.update(deltaTime)
+      heldItem.update(deltaTime)
+      beamVisuals.update(deltaTime)
       world.update(deltaTime, game.camera, player)
 
       // --------------------------------------------------------
@@ -124,11 +131,38 @@ try {
       // RIGHT CLICK = SPELLBOOK ATTACK
       // --------------------------------------------------------
       if (input.consumeAltAttack()) {
-      const result = combat.trySecondaryAttack(now)
+  const result = combat.trySecondaryAttack(now)
 
-       if (result.type !== 'cooldown' && result.attack) {
-      ui.playSpellbookCast(result.attack)
-      }
+  if (result.type !== 'cooldown' && result.attack) {
+    heldItem.cast()
+
+    const beamStart = heldItem.getCastWorldPosition()
+    game.camera.getWorldDirection(tempAimDirection)
+
+    const beamLength =
+      typeof result.hitDistance === 'number'
+        ? result.hitDistance
+        : (result.attack.range ?? 8)
+
+    const lowered = `${result.attack.id || ''} ${result.attack.name || ''}`.toLowerCase()
+
+    let beamColor = 0xff8a4a
+
+    if (lowered.includes('water')) {
+      beamColor = 0x66ccff
+    } else if (lowered.includes('flame')) {
+      beamColor = 0xff6a3d
+    }
+
+    beamVisuals.spawnBeam({
+      start: beamStart,
+      direction: tempAimDirection,
+      length: beamLength,
+      color: beamColor,
+      duration: 0.10,
+      thickness: 0.045,
+    })
+  }
 
   logCombatResult(result, 'Right Click')
 }

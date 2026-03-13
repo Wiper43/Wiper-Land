@@ -81,15 +81,18 @@ export function createUI() {
   // ------------------------------------------------------------
   // This acts like a held item in the player's right hand.
   // ============================================================
-  const spellbookHolder = document.createElement('div')
-  spellbookHolder.style.position = 'absolute'
-  spellbookHolder.style.right = '28px'
-  spellbookHolder.style.bottom = '30px'
-  spellbookHolder.style.width = '220px'
-  spellbookHolder.style.height = '180px'
-  spellbookHolder.style.pointerEvents = 'none'
-  spellbookHolder.style.overflow = 'visible'
-  root.appendChild(spellbookHolder)
+
+  
+const spellbookHolder = document.createElement('div')
+spellbookHolder.style.position = 'absolute'
+spellbookHolder.style.right = '28px'
+spellbookHolder.style.bottom = '30px'
+spellbookHolder.style.width = '220px'
+spellbookHolder.style.height = '180px'
+spellbookHolder.style.pointerEvents = 'none'
+spellbookHolder.style.overflow = 'visible'
+spellbookHolder.style.display = 'none'
+root.appendChild(spellbookHolder) 
 
   const spellbookShadow = document.createElement('div')
   spellbookShadow.style.position = 'absolute'
@@ -330,7 +333,24 @@ export function createUI() {
       slash.style.transform = 'rotate(25deg) scale(1.05)'
     })
   }
+  function getElementScreenPoint(element, xPercent = 0.5, yPercent = 0.5) {
+    const rect = element.getBoundingClientRect()
 
+    return {
+      x: rect.left + rect.width * xPercent,
+      y: rect.top + rect.height * yPercent,
+    }
+  }
+
+  function getHeldItemCastAnchor() {
+    // Slightly inside the visible page area so the beam feels like
+    // it comes from the book instead of the outer border.
+    return getElementScreenPoint(spellbook, 0.35, 0.35)
+  }
+
+  function getCrosshairAnchor() {
+    return getElementScreenPoint(crosshair, 0.5, 0.5)
+  }
   // ============================================================
   // SPELLBOOK CAST VISUAL
   // ------------------------------------------------------------
@@ -363,27 +383,6 @@ export function createUI() {
         'linear-gradient(90deg, rgba(255,100,50,0.0), rgba(255,70,40,0.97), rgba(255,180,70,0.78))'
     }
 
-    // ----------------------------------------------------------
-    // Book casting point on screen
-    // These numbers are tuned to visually line up with the book.
-    // ----------------------------------------------------------
-    const bookX = window.innerWidth - 108
-    const bookY = window.innerHeight - 92
-
-    // ----------------------------------------------------------
-    // Center of screen / crosshair
-    // ----------------------------------------------------------
-    const centerX = window.innerWidth * 0.5
-    const centerY = window.innerHeight * 0.5
-
-    const dx = centerX - bookX
-    const dy = centerY - bookY
-    const distance = Math.sqrt(dx * dx + dy * dy)
-    const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI)
-
-    // ----------------------------------------------------------
-    // Reset visuals
-    // ----------------------------------------------------------
     spellbook.style.transition = 'none'
     spellbookGlow.style.transition = 'none'
     spellTrail.style.transition = 'none'
@@ -396,13 +395,20 @@ export function createUI() {
     spellbookGlow.style.opacity = '0'
     spellbookGlow.style.background = `radial-gradient(circle, ${glowA}, ${glowB}, rgba(255,255,255,0.0))`
 
-    // ----------------------------------------------------------
-    // Beam setup
-    // We place the right end of the beam at the book,
-    // then rotate the full beam so it points to center screen.
-    // ----------------------------------------------------------
-    spellTrail.style.left = `${bookX - distance}px`
-    spellTrail.style.top = `${bookY - 17}px`
+    // Force layout so anchor positions reflect the current real DOM state
+    void spellbook.offsetWidth
+
+    const bookAnchor = getHeldItemCastAnchor()
+    const crosshairAnchor = getCrosshairAnchor()
+
+    const dx = crosshairAnchor.x - bookAnchor.x
+    const dy = crosshairAnchor.y - bookAnchor.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI)
+
+    // Trail starts at the held item anchor and extends toward the crosshair
+    spellTrail.style.left = `${bookAnchor.x - distance}px`
+    spellTrail.style.top = `${bookAnchor.y - 17}px`
     spellTrail.style.width = `${distance}px`
     spellTrail.style.height = '34px'
     spellTrail.style.background = trail
@@ -410,11 +416,9 @@ export function createUI() {
     spellTrail.style.transformOrigin = '100% 50%'
     spellTrail.style.transform = `rotate(${angleDeg}deg) scaleX(0.08)`
 
-    // ----------------------------------------------------------
-    // Flare at the book
-    // ----------------------------------------------------------
-    spellFlare.style.left = `${bookX - 33}px`
-    spellFlare.style.top = `${bookY - 33}px`
+    // Flare at cast origin
+    spellFlare.style.left = `${bookAnchor.x - 33}px`
+    spellFlare.style.top = `${bookAnchor.y - 33}px`
     spellFlare.style.background = `radial-gradient(circle, ${flare}, rgba(255,255,255,0.0) 70%)`
     spellFlare.style.opacity = '0.95'
     spellFlare.style.transform = 'scale(0.35)'
@@ -422,31 +426,26 @@ export function createUI() {
     void spellbook.offsetWidth
 
     requestAnimationFrame(() => {
-      // Book lifts slightly like a right-hand cast
       spellbook.style.transition =
         'transform 150ms ease-out, box-shadow 150ms ease-out'
       spellbook.style.transform = 'translate(-26px, -18px) rotate(-8deg) scale(1.05)'
       spellbook.style.boxShadow =
         `0 14px 34px rgba(0,0,0,0.50), 0 0 18px ${glowA}, inset 0 0 20px rgba(255,255,255,0.05)`
 
-      // Page glow blooms
       spellbookGlow.style.transition = 'opacity 140ms ease-out'
       spellbookGlow.style.opacity = '1'
 
-      // Beam expands from the book toward center screen
       spellTrail.style.transition =
         'transform 120ms ease-out, opacity 180ms ease-out'
       spellTrail.style.transform = `rotate(${angleDeg}deg) scaleX(1)`
       spellTrail.style.opacity = '0'
 
-      // Casting flare pops
       spellFlare.style.transition =
         'transform 120ms ease-out, opacity 170ms ease-out'
       spellFlare.style.transform = 'scale(1.15)'
       spellFlare.style.opacity = '0'
     })
 
-    // Return book to idle
     setTimeout(() => {
       spellbook.style.transition =
         'transform 180ms ease-out, box-shadow 180ms ease-out'
