@@ -65,6 +65,10 @@ export function createTestWorld(scene, audio = {}) {
         for (const entity of entities) {
           if (!entity || entity.isDead) continue
 
+          if (typeof entity.applyPendingKnockback === 'function') {
+            entity.applyPendingKnockback(deltaTime)
+          }
+
           if (typeof entity.update === 'function') {
             entity.update(deltaTime, camera, player)
           }
@@ -551,6 +555,25 @@ function addBlock(
       )
     },
 
+    applyKnockback(sourcePosition, strength = 0) {
+      if (!sourcePosition || strength <= 0) return
+
+      const push = new THREE.Vector3(
+        this.mesh.position.x - sourcePosition.x,
+        0,
+        this.mesh.position.z - sourcePosition.z
+      )
+
+      if (push.lengthSq() <= 0.0001) return
+
+      push.normalize().multiplyScalar(strength)
+      this.knockbackVelocity.add(push)
+    },
+
+    applyPendingKnockback(deltaTime) {
+      applySmoothEntityKnockback(deltaTime, this, world.colliders)
+    },
+
     takeDamage(amount, info = {}) {
       if (!this.canTakeDamage || this.isDead) return
 
@@ -767,6 +790,9 @@ function createCowDummy(world, position, audio) {
     stuckTimer: 0,
     repathCooldown: 0,
     attackCooldown: 0,
+    knockbackVelocity: new THREE.Vector3(),
+    knockbackDamping: 8.5,
+    knockbackColliderHalf: COW_COLLIDER_HALF.clone(),
 
     get mooSound() {
       return mooSound
@@ -782,8 +808,31 @@ function createCowDummy(world, position, audio) {
       )
     },
 
+    applyKnockback(sourcePosition, strength = 0) {
+      if (!sourcePosition || strength <= 0) return
+
+      const push = new THREE.Vector3(
+        this.mesh.position.x - sourcePosition.x,
+        0,
+        this.mesh.position.z - sourcePosition.z
+      )
+
+      if (push.lengthSq() <= 0.0001) return
+
+      push.normalize().multiplyScalar(strength)
+      this.knockbackVelocity.add(push)
+    },
+
+    applyPendingKnockback(deltaTime) {
+      applySmoothEntityKnockback(deltaTime, this, world.colliders)
+    },
+
     takeDamage(amount, info = {}) {
       if (this.isDead) return
+
+      if (info.sourcePosition) {
+        this.applyKnockback(info.sourcePosition, info.attackData?.knockback ?? 0)
+      }
 
       this.health -= amount
       if (this.health < 0) this.health = 0
@@ -1353,6 +1402,79 @@ function canOccupyKnockbackPosition(position, colliderHalf, colliders, ignoredCo
   }
 
   return true
+}
+
+
+function applySmoothEntityKnockback(deltaTime, entity, colliders) {
+  if (!entity?.mesh?.position) return
+  if (!entity.knockbackVelocity) {
+    entity.knockbackVelocity = new THREE.Vector3()
+    return
+  }
+
+  if (entity.knockbackVelocity.lengthSq() <= 0.00001) {
+    entity.knockbackVelocity.set(0, 0, 0)
+    return
+  }
+
+  const colliderHalf = entity.knockbackColliderHalf ?? new THREE.Vector3(0.5, 1.0, 0.5)
+  const ignoredColliders = new Set()
+  if (entity.collider) {
+    ignoredColliders.add(entity.collider)
+  }
+
+  const move = entity.knockbackVelocity.clone().multiplyScalar(deltaTime)
+  let moved = false
+
+  const fullTarget = entity.mesh.position.clone().add(move)
+  if (canOccupyKnockbackPosition(fullTarget, colliderHalf, colliders, ignoredColliders)) {
+    entity.mesh.position.copy(fullTarget)
+    moved = true
+  } else {
+    const xTarget = entity.mesh.position.clone().add(new THREE.Vector3(move.x, 0, 0))
+    const zTarget = entity.mesh.position.clone().add(new THREE.Vector3(0, 0, move.z))
+
+    const canMoveX =
+      Math.abs(move.x) > 0.0001 &&
+      canOccupyKnockbackPosition(xTarget, colliderHalf, colliders, ignoredColliders)
+
+    const canMoveZ =
+      Math.abs(move.z) > 0.0001 &&
+      canOccupyKnockbackPosition(zTarget, colliderHalf, colliders, ignoredColliders)
+
+    if (canMoveX && canMoveZ) {
+      if (Math.abs(move.x) >= Math.abs(move.z)) {
+        entity.mesh.position.copy(xTarget)
+      } else {
+        entity.mesh.position.copy(zTarget)
+      }
+      moved = true
+    } else if (canMoveX) {
+      entity.mesh.position.copy(xTarget)
+      moved = true
+    } else if (canMoveZ) {
+      entity.mesh.position.copy(zTarget)
+      moved = true
+    }
+  }
+
+  const damping = Math.max(0, 1 - (entity.knockbackDamping ?? 8.5) * deltaTime)
+  entity.knockbackVelocity.multiplyScalar(damping)
+
+  if (!moved || entity.knockbackVelocity.lengthSq() <= 0.0004) {
+    entity.knockbackVelocity.set(0, 0, 0)
+  }
+
+  if (entity.collider?.box) {
+    entity.collider.box.setFromCenterAndSize(
+      new THREE.Vector3(
+        entity.mesh.position.x,
+        entity.mesh.position.y + colliderHalf.y,
+        entity.mesh.position.z
+      ),
+      new THREE.Vector3(colliderHalf.x * 2, colliderHalf.y * 2, colliderHalf.z * 2)
+    )
+  }
 }
 
 function horizontalDistance(a, b) {

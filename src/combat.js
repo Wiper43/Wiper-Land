@@ -38,6 +38,7 @@ export function createCombat({ camera, world }) {
       cooldownMs: 400,
       color: '#ffffff',
       visualType: 'slash',
+      knockback: 8,
     },
 
     flamethrower: {
@@ -49,6 +50,7 @@ export function createCombat({ camera, world }) {
       cooldownMs: 550,
       color: '#ff4d2d',
       visualType: 'beamShell',
+      knockback: 15,
     },
 
     waterGun: {
@@ -60,6 +62,7 @@ export function createCombat({ camera, world }) {
       cooldownMs: 550,
       color: '#3da5ff',
       visualType: 'beamShell',
+      knockback: 6.5,
     },
   }
 
@@ -104,7 +107,9 @@ export function createCombat({ camera, world }) {
       cooldownMs: attack.cooldownMs,
       color: attack.color,
       visualType: attack.visualType,
+      knockback: attack.knockback ?? 0,
       source: 'player',
+      sourcePosition: camera.position.clone(),
     }
 
     // ----------------------------------------------------------
@@ -195,6 +200,7 @@ export function createCombat({ camera, world }) {
       entity.takeDamage(attackData.basePower, {
         hitPoint: hit.point,
         attackData,
+        sourcePosition: attackData.sourcePosition?.clone?.() ?? null,
       })
 
       return {
