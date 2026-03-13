@@ -447,3 +447,163 @@ movement sandbox
 → playable combat encounter
 
 Phase 2.5 is successfully evolving the project into a real gameplay loop rather than a test arena
+
+//////////////////////////////////////////////
+///////////////////////////////////////
+phase 2 unifished but complete
+//////////////////////////////////////////////
+//////////////////////////////////////
+
+Wiper Land — Project State Summary
+Current phase
+
+You’ve completed a strong Phase 2.5 combat prototype and you’re now ready to begin Phase 3: World Structure. That lines up with your architecture plan, where Phase 3 is the point to introduce the block world, chunk structure, terrain generation, placement/destruction, and world queries.
+
+What is already working
+
+Your current build has a solid playable loop:
+
+Three.js browser prototype
+
+first-person movement
+
+jumping
+
+gravity
+
+mouse look
+
+arena collision
+
+player health and damage intake
+
+combat based on raycast gameplay with separate visual effects
+
+enemy cows that detect, chase, and attack
+
+multiple cows active at once
+
+round-based zombie cow mini-game flow
+
+wave progression with delay and UI messaging
+
+victory screen showing remaining health and time spent
+
+That means the project is no longer just a movement sandbox or a single-target combat test. It is now a real playable combat scenario.
+
+Combat architecture status
+
+Your combat structure is in a good place:
+
+gameplay hit detection is separated from visuals
+
+attacks route through centralized combat logic
+
+enemies can take damage and die
+
+player knockback works
+
+enemy knockback was added and partially worked, but needs follow-up tuning/debugging
+
+combat is already modular enough to carry forward into later systems
+
+That fits the larger Wiper Land direction where combat should remain a distinct system and not be tangled into player code.
+
+Zombie Cow mini-game status
+
+The mini-game is now functioning as an actual prototype loop instead of a note. Earlier, the uploaded mini-game file was only a placeholder saying to upload the zip for review.
+
+As of today, your implemented mini-game includes:
+
+Wave 1: 1 cow
+
+Wave 2: 3 cows
+
+Wave 3: 10 cows
+
+round transition messaging
+
+2-second delay between waves
+
+end-state victory summary
+
+Known issues to carry forward
+
+You ended today with two known bugs:
+
+In wave 3, at least one cow spawned on a block and got stuck.
+
+Enemy pushback no longer felt like it was working correctly.
+
+Those are both fixable and neither blocks Phase 3 planning.
+
+Recommended interpretation of where you are
+
+You are not starting Phase 3 from scratch.
+
+You are entering Phase 3 with:
+
+a proven movement base
+
+a proven combat loop
+
+working hostile entities
+
+basic game-state flow
+
+early UI feedback
+
+a playable mini-game testbed
+
+That is a very good place to be.
+
+What Phase 3 should mean for your project
+
+Based on your architecture notes, Phase 3 should focus on turning the current arena prototype into a real world foundation:
+
+block world
+
+chunk structure
+
+terrain generation
+
+world queries
+
+block placement and destruction
+
+The smart goal is not “make a huge game world” yet. The goal is to build the first clean world foundation under the combat prototype.
+
+Best next mindset
+
+Your best move now is:
+
+freeze Phase 2.5 as “playable but imperfect,” then start Phase 3 cleanly
+
+That means:
+
+keep note of the cow spawn bug
+
+keep note of the enemy knockback regression
+
+do not let those small issues delay the world foundation work unless they block testing
+
+Suggested Phase 3 starting point
+
+When you come back, I’d frame Phase 3 like this:
+
+Phase 3.0 goal:
+Replace the temporary arena-only setup with the first real world system:
+
+flat block terrain
+
+chunk data structure
+
+block lookup
+
+collision against blocks
+
+simple placement/destruction
+
+keep combat playable inside it
+
+That follows your intended build order exactly: movement → combat → world.
