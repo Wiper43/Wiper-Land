@@ -5,6 +5,8 @@ export function createTestWorld(scene, audio = {}) {
   const colliders = []
   const entities = []
   const floatingTexts = []
+  const attackBeams = []
+  const playerDamageSound = createBrowserSound('/sounds/take-damage-sound.mp3')
 
   const navGrid = createNavGrid({
     worldSize: 40,
@@ -22,13 +24,35 @@ export function createTestWorld(scene, audio = {}) {
     cowEntity: null,
     audio,
     navGrid,
+    attackBeams,
+    playerDamageSound,
     navDirty: true,
     navRebuildCooldown: 0,
     debugNav: true,
     navDebug: createNavDebug(scene),
+    survivalTime: 0,
+    isGameOver: false,
+    gameOverOverlay: null,
+    playerState: {
+      maxHealth: 100,
+      health: 100,
+      ui: null,
+      initialized: false,
+      knockbackVelocity: new THREE.Vector3(),
+    },
 
     update(deltaTime, camera, player) {
+      this.ensurePlayerState(player)
+      this.ensurePlayerUI()
+
+      if (!this.isGameOver) {
+        this.survivalTime += deltaTime
+      }
+
       updateFloatingTexts(deltaTime, floatingTexts, scene)
+      updateAttackBeams(deltaTime, attackBeams, scene)
+      this.applyPlayerKnockback(deltaTime, player)
+      this.updatePlayerUI()
 
       this.navRebuildCooldown -= deltaTime
       if (this.navDirty || this.navRebuildCooldown <= 0) {
@@ -37,14 +61,21 @@ export function createTestWorld(scene, audio = {}) {
         this.navRebuildCooldown = 0.5
       }
 
-      for (const entity of entities) {
-        if (!entity || entity.isDead) continue
+      if (!this.isGameOver) {
+        for (const entity of entities) {
+          if (!entity || entity.isDead) continue
 
-        if (typeof entity.update === 'function') {
-          entity.update(deltaTime, camera, player)
+          if (typeof entity.update === 'function') {
+            entity.update(deltaTime, camera, player)
+          }
+
+          syncEntityUI(entity, camera)
         }
-
-        syncEntityUI(entity, camera)
+      } else {
+        for (const entity of entities) {
+          if (!entity || entity.isDead) continue
+          syncEntityUI(entity, camera)
+        }
       }
 
       if (this.debugNav) {
@@ -94,6 +125,230 @@ export function createTestWorld(scene, audio = {}) {
     setCowSoundBuffer(buffer) {
       if (!this.cowEntity) return
       this.cowEntity.setSoundBuffer(buffer)
+    },
+
+    ensurePlayerState(player) {
+      if (!player) return
+
+      if (player.maxHealth == null) player.maxHealth = 100
+      if (player.health == null) player.health = 100
+      if (player.isDead == null) player.isDead = false
+      if (!player.knockbackVelocity) player.knockbackVelocity = new THREE.Vector3()
+
+      this.playerState.maxHealth = player.maxHealth
+      this.playerState.health = player.health
+      this.playerState.initialized = true
+    },
+
+    ensurePlayerUI() {
+      if (this.playerState.ui || typeof document === 'undefined') return
+
+      const wrap = document.createElement('div')
+      wrap.style.position = 'fixed'
+      wrap.style.left = '16px'
+      wrap.style.top = '16px'
+      wrap.style.zIndex = '10000'
+      wrap.style.padding = '10px 14px'
+      wrap.style.border = '3px solid rgba(255,255,255,0.35)'
+      wrap.style.background = 'rgba(0,0,0,0.62)'
+      wrap.style.color = '#ffffff'
+      wrap.style.fontFamily = 'Arial, sans-serif'
+      wrap.style.fontWeight = '700'
+      wrap.style.fontSize = '18px'
+      wrap.style.borderRadius = '10px'
+      wrap.style.boxShadow = '0 0 16px rgba(0,0,0,0.35)'
+
+      const hp = document.createElement('div')
+      const time = document.createElement('div')
+      time.style.marginTop = '6px'
+      time.style.fontSize = '15px'
+      time.style.fontWeight = '600'
+      time.style.opacity = '0.95'
+
+      wrap.appendChild(hp)
+      wrap.appendChild(time)
+      document.body.appendChild(wrap)
+
+      this.playerState.ui = { wrap, hp, time }
+    },
+
+    updatePlayerUI() {
+      if (!this.playerState.ui) return
+
+      const { wrap, hp, time } = this.playerState.ui
+      const hpValue = Math.max(0, Math.round(this.playerState.health))
+      const maxHp = Math.max(1, Math.round(this.playerState.maxHealth))
+      hp.textContent = `Player HP: ${hpValue} / ${maxHp}`
+      time.textContent = `Time Survived: ${this.survivalTime.toFixed(1)}s`
+
+      const hpRatio = hpValue / maxHp
+      if (hpRatio > 0.6) {
+        wrap.style.borderColor = 'rgba(120, 255, 120, 0.55)'
+      } else if (hpRatio > 0.3) {
+        wrap.style.borderColor = 'rgba(255, 210, 90, 0.75)'
+      } else {
+        wrap.style.borderColor = 'rgba(255, 90, 90, 0.9)'
+      }
+    },
+
+    damagePlayer(player, amount, sourcePosition = null, pushStrength = 1.35) {
+      if (!player || this.isGameOver) return
+
+      this.ensurePlayerState(player)
+
+      player.health = Math.max(0, (player.health ?? 100) - amount)
+      this.playerState.health = player.health
+      this.playerState.maxHealth = player.maxHealth ?? 100
+
+      if (sourcePosition && player.position && player.knockbackVelocity) {
+        const push = new THREE.Vector3(
+          player.position.x - sourcePosition.x,
+          0,
+          player.position.z - sourcePosition.z
+        )
+
+        if (push.lengthSq() > 0.0001) {
+          push.normalize().multiplyScalar(pushStrength)
+          player.knockbackVelocity.add(push)
+          this.playerState.knockbackVelocity.copy(player.knockbackVelocity)
+        }
+      }
+
+      if (this.playerDamageSound) {
+        try {
+          this.playerDamageSound.currentTime = 0
+          this.playerDamageSound.play()
+        } catch (err) {
+          console.warn('Could not play player damage sound:', err)
+        }
+      }
+
+      if (player.health <= 0) {
+        player.isDead = true
+        this.playerState.health = 0
+        this.triggerGameOver()
+      }
+    },
+
+    applyPlayerKnockback(deltaTime, player) {
+      if (!player?.position || !player?.knockbackVelocity || this.isGameOver) return
+
+      applySmoothKnockbackStep({
+        position: player.position,
+        velocity: player.knockbackVelocity,
+        deltaTime,
+        colliders: this.colliders,
+        colliderHalf: getPlayerKnockbackHalf(player),
+        friction: KNOCKBACK_FRICTION,
+        dynamicColliderToIgnore: player.collider || null,
+      })
+
+      this.playerState.knockbackVelocity.copy(player.knockbackVelocity)
+    },
+
+    spawnAttackBeam(fromPosition, toPosition, color = 0xff4444, life = 0.18) {
+      const material = new THREE.LineBasicMaterial({ color })
+      const geometry = new THREE.BufferGeometry().setFromPoints([
+        fromPosition.clone(),
+        toPosition.clone(),
+      ])
+      const line = new THREE.Line(geometry, material)
+      scene.add(line)
+
+      attackBeams.push({
+        line,
+        age: 0,
+        life,
+      })
+    },
+
+    triggerGameOver() {
+      if (this.isGameOver || typeof document === 'undefined') return
+      this.isGameOver = true
+
+      if (this.gameOverOverlay?.parentNode) {
+        this.gameOverOverlay.parentNode.removeChild(this.gameOverOverlay)
+      }
+
+      const overlay = document.createElement('div')
+      overlay.style.position = 'fixed'
+      overlay.style.inset = '0'
+      overlay.style.zIndex = '10001'
+      overlay.style.display = 'flex'
+      overlay.style.alignItems = 'center'
+      overlay.style.justifyContent = 'center'
+      overlay.style.background = 'rgba(0, 0, 0, 0.84)'
+      overlay.style.fontFamily = 'Arial, sans-serif'
+
+      const panel = document.createElement('div')
+      panel.style.minWidth = '320px'
+      panel.style.maxWidth = '90vw'
+      panel.style.padding = '28px 26px'
+      panel.style.borderRadius = '14px'
+      panel.style.border = '4px solid rgba(255, 70, 70, 0.95)'
+      panel.style.background = 'rgba(25, 8, 8, 0.95)'
+      panel.style.color = '#ffffff'
+      panel.style.textAlign = 'center'
+      panel.style.boxShadow = '0 0 26px rgba(255, 40, 40, 0.35)'
+
+      const title = document.createElement('div')
+      title.textContent = 'GAME OVER'
+      title.style.fontSize = '36px'
+      title.style.fontWeight = '900'
+      title.style.letterSpacing = '2px'
+      title.style.marginBottom = '14px'
+
+      const survived = document.createElement('div')
+      survived.textContent = `Time survived: ${this.survivalTime.toFixed(1)} seconds`
+      survived.style.fontSize = '20px'
+      survived.style.marginBottom = '18px'
+
+      const prompt = document.createElement('div')
+      prompt.textContent = 'Play again?'
+      prompt.style.fontSize = '18px'
+      prompt.style.marginBottom = '18px'
+
+      const buttonRow = document.createElement('div')
+      buttonRow.style.display = 'flex'
+      buttonRow.style.gap = '12px'
+      buttonRow.style.justifyContent = 'center'
+
+      const yesBtn = document.createElement('button')
+      yesBtn.textContent = 'Yes'
+      yesBtn.style.padding = '10px 18px'
+      yesBtn.style.fontSize = '18px'
+      yesBtn.style.fontWeight = '800'
+      yesBtn.style.borderRadius = '10px'
+      yesBtn.style.border = '2px solid rgba(255,255,255,0.25)'
+      yesBtn.style.background = '#d23a3a'
+      yesBtn.style.color = '#fff'
+      yesBtn.style.cursor = 'pointer'
+      yesBtn.onclick = () => window.location.reload()
+
+      const noBtn = document.createElement('button')
+      noBtn.textContent = 'No'
+      noBtn.style.padding = '10px 18px'
+      noBtn.style.fontSize = '18px'
+      noBtn.style.fontWeight = '800'
+      noBtn.style.borderRadius = '10px'
+      noBtn.style.border = '2px solid rgba(255,255,255,0.25)'
+      noBtn.style.background = '#444'
+      noBtn.style.color = '#fff'
+      noBtn.style.cursor = 'pointer'
+      noBtn.onclick = () => {
+        overlay.remove()
+      }
+
+      buttonRow.appendChild(yesBtn)
+      buttonRow.appendChild(noBtn)
+      panel.appendChild(title)
+      panel.appendChild(survived)
+      panel.appendChild(prompt)
+      panel.appendChild(buttonRow)
+      overlay.appendChild(panel)
+      document.body.appendChild(overlay)
+
+      this.gameOverOverlay = overlay
     },
   }
 
@@ -358,6 +613,11 @@ function createCowDummy(world, position, audio) {
   const COW_STUCK_TIME = 0.85
   const COW_STUCK_MOVE_EPSILON = 0.12
   const COW_PATH_COOLDOWN_AFTER_STUCK = 0.45
+  const COW_ATTACK_DAMAGE = 10
+  const COW_ATTACK_COOLDOWN = 1.1
+  const COW_ATTACK_PUSH = 1.45
+  const COW_ATTACK_BEAM_LIFE = 0.18
+  const KNOCKBACK_FRICTION = 10.5
   const COW_IDLE_ROAM_RADIUS = 3.25
   const COW_IDLE_ROAM_INTERVAL_MIN = 1.5
   const COW_IDLE_ROAM_INTERVAL_MAX = 3.5
@@ -494,6 +754,7 @@ function createCowDummy(world, position, audio) {
     maxHealth: 50,
     isDead: false,
     canTakeDamage: true,
+    isLiving: true,
     blocksAttack: true,
     healthText: healthBar,
     labelHeight: 3.0,
@@ -515,6 +776,8 @@ function createCowDummy(world, position, audio) {
     lastPosition: position.clone(),
     stuckTimer: 0,
     repathCooldown: 0,
+    attackCooldown: 0,
+    knockbackVelocity: new THREE.Vector3(),
 
     get mooSound() {
       return mooSound
@@ -541,6 +804,13 @@ function createCowDummy(world, position, audio) {
       const damagePos = info.hitPoint
         ? info.hitPoint.clone().add(new THREE.Vector3(0, 0.45, 0))
         : this.getAnchorPosition()
+
+      if (this.isLiving) {
+        const knockbackDirection = getKnockbackDirection(this.mesh.position, info)
+        if (knockbackDirection) {
+          this.knockbackVelocity.add(knockbackDirection.multiplyScalar(0.95))
+        }
+      }
 
       world.spawnFloatingDamage(damagePos, amount, '#ffb347')
       updateEntityHealthText(this, 'Cow HP')
@@ -788,10 +1058,22 @@ function createCowDummy(world, position, audio) {
       this.moveTime += deltaTime
       this.pathRecalcTimer -= deltaTime
       this.repathCooldown -= deltaTime
-      this.debugState = 'idle'
+      this.attackCooldown -= deltaTime
+
+      const knockbackMoved = applySmoothKnockbackStep({
+        position: this.mesh.position,
+        velocity: this.knockbackVelocity,
+        deltaTime,
+        colliders: world.colliders,
+        colliderHalf: COW_COLLIDER_HALF,
+        friction: KNOCKBACK_FRICTION,
+        dynamicColliderToIgnore: this.collider,
+      })
+
+      this.debugState = knockbackMoved ? 'knockback' : 'idle'
       this.debugWaypoint = null
 
-      let isMoving = false
+      let isMoving = knockbackMoved
       let attemptedMove = false
 
       if (player?.position) {
@@ -806,7 +1088,9 @@ function createCowDummy(world, position, audio) {
         const withinStopDistance = distanceToPlayer <= this.stopDistance
         this.setAggroState(withinAggro)
 
-        if (withinAggro && !withinStopDistance) {
+        if (knockbackMoved) {
+          this.debugState = 'knockback'
+        } else if (withinAggro && !withinStopDistance) {
           this.debugState = 'aggro'
           this.idleRoamTarget = null
 
@@ -913,6 +1197,15 @@ function createCowDummy(world, position, audio) {
               targetYaw,
               COW_TURN_SPEED * deltaTime
             )
+          }
+
+          if (this.attackCooldown <= 0 && player && !player.isDead) {
+            const beamStart = this.mesh.position.clone().add(new THREE.Vector3(0, 1.5, 0))
+            const beamEnd = player.position.clone().add(new THREE.Vector3(0, 1.0, 0))
+            world.spawnAttackBeam(beamStart, beamEnd, 0xff4444, COW_ATTACK_BEAM_LIFE)
+            world.damagePlayer(player, COW_ATTACK_DAMAGE, this.mesh.position, COW_ATTACK_PUSH)
+            this.attackCooldown = COW_ATTACK_COOLDOWN
+            this.debugState = 'attack-hit'
           }
         } else {
           this.debugState = 'idle-roam'
@@ -1033,6 +1326,29 @@ function updateFloatingTexts(deltaTime, floatingTexts, scene) {
       scene.remove(item.sprite)
       disposeTextSprite(item.sprite)
       floatingTexts.splice(i, 1)
+    }
+  }
+}
+
+
+function updateAttackBeams(deltaTime, attackBeams, scene) {
+  for (let i = attackBeams.length - 1; i >= 0; i--) {
+    const item = attackBeams[i]
+    item.age += deltaTime
+
+    const t = item.age / item.life
+    if (item.line?.material) {
+      item.line.material.transparent = true
+      item.line.material.opacity = Math.max(0, 1 - t)
+    }
+
+    if (item.age >= item.life) {
+      if (item.line) {
+        scene.remove(item.line)
+        item.line.geometry?.dispose?.()
+        item.line.material?.dispose?.()
+      }
+      attackBeams.splice(i, 1)
     }
   }
 }
@@ -1173,6 +1489,117 @@ function disposeTextSprite(sprite) {
   }
 }
 
+
+
+function createBrowserSound(src) {
+  if (typeof Audio === 'undefined') return null
+  const audio = new Audio(src)
+  audio.preload = 'auto'
+  return audio
+}
+
+function getKnockbackDirection(targetPosition, info = {}) {
+  const attackerPosition = info.attackerPosition || info.sourcePosition || null
+  const hitPoint = info.hitPoint || null
+  const from = attackerPosition || hitPoint
+
+  if (!from) return null
+
+  const dir = new THREE.Vector3(
+    targetPosition.x - from.x,
+    0,
+    targetPosition.z - from.z
+  )
+
+  if (dir.lengthSq() <= 0.0001) return null
+  return dir.normalize()
+}
+
+function getPlayerKnockbackHalf(player) {
+  if (player?.collider?.box) {
+    const size = new THREE.Vector3()
+    player.collider.box.getSize(size)
+    return size.multiplyScalar(0.5)
+  }
+
+  return new THREE.Vector3(0.38, 0.9, 0.38)
+}
+
+function canOccupyPosition(position, colliderHalf, colliders, dynamicColliderToIgnore = null) {
+  const targetBox = new THREE.Box3().setFromCenterAndSize(
+    new THREE.Vector3(position.x, position.y + colliderHalf.y, position.z),
+    new THREE.Vector3(colliderHalf.x * 2, colliderHalf.y * 2, colliderHalf.z * 2)
+  )
+
+  for (const collider of colliders) {
+    if (!collider || collider === dynamicColliderToIgnore) continue
+    if (!targetBox.intersectsBox(collider.box)) continue
+    return false
+  }
+
+  return true
+}
+
+function applySmoothKnockbackStep({
+  position,
+  velocity,
+  deltaTime,
+  colliders,
+  colliderHalf,
+  friction = 10.5,
+  dynamicColliderToIgnore = null,
+}) {
+  if (!position || !velocity || !colliderHalf) return false
+
+  if (velocity.lengthSq() <= 0.00001) {
+    velocity.set(0, 0, 0)
+    return false
+  }
+
+  const move = velocity.clone().multiplyScalar(deltaTime)
+  let moved = false
+
+  const fullTarget = position.clone().add(move)
+  if (canOccupyPosition(fullTarget, colliderHalf, colliders, dynamicColliderToIgnore)) {
+    position.copy(fullTarget)
+    moved = true
+  } else {
+    const xTarget = position.clone().add(new THREE.Vector3(move.x, 0, 0))
+    const zTarget = position.clone().add(new THREE.Vector3(0, 0, move.z))
+
+    const canMoveX =
+      Math.abs(move.x) > 0.0001 && canOccupyPosition(xTarget, colliderHalf, colliders, dynamicColliderToIgnore)
+    const canMoveZ =
+      Math.abs(move.z) > 0.0001 && canOccupyPosition(zTarget, colliderHalf, colliders, dynamicColliderToIgnore)
+
+    if (canMoveX && canMoveZ) {
+      if (Math.abs(move.x) >= Math.abs(move.z)) {
+        position.copy(xTarget)
+      } else {
+        position.copy(zTarget)
+      }
+      moved = true
+    } else if (canMoveX) {
+      position.copy(xTarget)
+      moved = true
+    } else if (canMoveZ) {
+      position.copy(zTarget)
+      moved = true
+    } else {
+      velocity.set(0, 0, 0)
+      return false
+    }
+  }
+
+  const damping = Math.max(0, 1 - friction * deltaTime)
+  velocity.multiplyScalar(damping)
+
+  if (velocity.lengthSq() <= 0.0004) {
+    velocity.set(0, 0, 0)
+  }
+
+  return moved
+}
 
 function createNavDebug(scene) {
   const group = new THREE.Group()
