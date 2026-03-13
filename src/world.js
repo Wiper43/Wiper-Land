@@ -33,7 +33,29 @@ export function createTestWorld(scene, audio = {}) {
     navDebug: createNavDebug(scene),
     survivalTime: 0,
     isGameOver: false,
+    isVictory: false,
     gameOverOverlay: null,
+    waveOverlay: null,
+    waveMessageTimeout: null,
+    cowVolume: 0.8,
+    waveConfig: [1, 3, 10],
+    waveSpawnPositions: [
+      new THREE.Vector3(0, 0, -5),
+      new THREE.Vector3(-10, 0, -10),
+      new THREE.Vector3(0, 0, -12),
+      new THREE.Vector3(10, 0, -10),
+      new THREE.Vector3(-12, 0, -4),
+      new THREE.Vector3(12, 0, -4),
+      new THREE.Vector3(-8, 0, 8),
+      new THREE.Vector3(8, 0, 8),
+      new THREE.Vector3(0, 0, 12),
+      new THREE.Vector3(-14, 0, 12),
+      new THREE.Vector3(14, 0, 12),
+      new THREE.Vector3(0, 0, -15),
+    ],
+    currentWaveIndex: -1,
+    wavePhase: 'boot',
+    waveDelayTimer: 0,
     playerState: {
       maxHealth: 100,
       health: 100,
@@ -53,6 +75,7 @@ export function createTestWorld(scene, audio = {}) {
       updateFloatingTexts(deltaTime, floatingTexts, scene)
       updateAttackBeams(deltaTime, attackBeams, scene)
       applySmoothPlayerKnockback(deltaTime, player, this.colliders)
+      this.updateWaveState(deltaTime)
       this.updatePlayerUI()
 
       this.navRebuildCooldown -= deltaTime
@@ -114,6 +137,7 @@ export function createTestWorld(scene, audio = {}) {
 
     setCowVolume(volume) {
       const safeVolume = Math.max(0, Math.min(1, Number(volume) || 0))
+      this.cowVolume = safeVolume
 
       for (const cow of this.cowEntities) {
         if (!cow || cow.isDead) continue
@@ -183,8 +207,10 @@ export function createTestWorld(scene, audio = {}) {
       const { wrap, hp, time } = this.playerState.ui
       const hpValue = Math.max(0, Math.round(this.playerState.health))
       const maxHp = Math.max(1, Math.round(this.playerState.maxHealth))
+      const displayedWave = Math.max(1, Math.min(this.currentWaveIndex + 1, this.waveConfig.length))
+      const aliveCows = this.getAliveCowCount()
       hp.textContent = `Player HP: ${hpValue} / ${maxHp}`
-      time.textContent = `Time Survived: ${this.survivalTime.toFixed(1)}s`
+      time.textContent = `Time: ${this.survivalTime.toFixed(1)}s • Round: ${displayedWave}/${this.waveConfig.length} • Cows Left: ${aliveCows}`
 
       const hpRatio = hpValue / maxHp
       if (hpRatio > 0.6) {
@@ -194,6 +220,209 @@ export function createTestWorld(scene, audio = {}) {
       } else {
         wrap.style.borderColor = 'rgba(255, 90, 90, 0.9)'
       }
+    },
+
+    getAliveCowCount() {
+      return this.cowEntities.filter((cow) => cow && !cow.isDead).length
+    },
+
+    removeCowEntity(cow) {
+      if (!cow) return
+      this.cowEntities = this.cowEntities.filter((entry) => entry !== cow)
+      if (this.cowEntity === cow) {
+        this.cowEntity = this.cowEntities.find((entry) => entry && !entry.isDead) || this.cowEntities[0] || null
+      }
+    },
+
+    spawnCow(spawnPosition) {
+      const cow = createCowDummy(this, spawnPosition.clone(), this.audio)
+      cow.cowVolume = this.cowVolume
+      if (cow.mooSound) cow.mooSound.setVolume(this.cowVolume)
+      if (this.audio?.mooBuffer && typeof cow.setSoundBuffer === 'function') {
+        cow.setSoundBuffer(this.audio.mooBuffer)
+      }
+      this.cowEntities.push(cow)
+      this.entities.push(cow)
+      if (!this.cowEntity || this.cowEntity.isDead) this.cowEntity = cow
+      this.markNavDirty()
+      return cow
+    },
+
+    showWaveMessage(title, subtitle = '', duration = 1.6) {
+      if (typeof document === 'undefined') return
+
+      if (!this.waveOverlay) {
+        const overlay = document.createElement('div')
+        overlay.style.position = 'fixed'
+        overlay.style.left = '50%'
+        overlay.style.top = '90px'
+        overlay.style.transform = 'translateX(-50%)'
+        overlay.style.zIndex = '10002'
+        overlay.style.pointerEvents = 'none'
+        overlay.style.padding = '16px 24px'
+        overlay.style.borderRadius = '14px'
+        overlay.style.border = '3px solid rgba(255,255,255,0.2)'
+        overlay.style.background = 'rgba(0,0,0,0.72)'
+        overlay.style.color = '#ffffff'
+        overlay.style.fontFamily = 'Arial, sans-serif'
+        overlay.style.textAlign = 'center'
+        overlay.style.boxShadow = '0 0 24px rgba(0,0,0,0.28)'
+        overlay.style.opacity = '0'
+        overlay.style.transition = 'opacity 0.18s ease'
+
+        const titleEl = document.createElement('div')
+        titleEl.style.fontSize = '30px'
+        titleEl.style.fontWeight = '900'
+        titleEl.style.letterSpacing = '1.5px'
+
+        const subtitleEl = document.createElement('div')
+        subtitleEl.style.fontSize = '18px'
+        subtitleEl.style.marginTop = '6px'
+        subtitleEl.style.opacity = '0.92'
+
+        overlay.appendChild(titleEl)
+        overlay.appendChild(subtitleEl)
+        document.body.appendChild(overlay)
+
+        this.waveOverlay = { root: overlay, titleEl, subtitleEl }
+      }
+
+      const { root, titleEl, subtitleEl } = this.waveOverlay
+      titleEl.textContent = title
+      subtitleEl.textContent = subtitle
+      subtitleEl.style.display = subtitle ? 'block' : 'none'
+      root.style.opacity = '1'
+
+      if (this.waveMessageTimeout) {
+        clearTimeout(this.waveMessageTimeout)
+      }
+
+      this.waveMessageTimeout = setTimeout(() => {
+        if (this.waveOverlay?.root) this.waveOverlay.root.style.opacity = '0'
+      }, Math.max(150, duration * 1000))
+    },
+
+    startWave(index) {
+      this.currentWaveIndex = index
+      this.wavePhase = 'active'
+
+      const cowCount = this.waveConfig[index] ?? 0
+      const spawnCount = Math.min(cowCount, this.waveSpawnPositions.length)
+
+      for (let i = 0; i < spawnCount; i++) {
+        this.spawnCow(this.waveSpawnPositions[i])
+      }
+
+      this.showWaveMessage(`LEVEL ${index + 1} START`, `Defeat ${cowCount} zombie ${cowCount === 1 ? 'cow' : 'cows'}`, 1.8)
+    },
+
+    beginNextWaveDelay() {
+      if (this.currentWaveIndex + 1 >= this.waveConfig.length) {
+        this.triggerVictory()
+        return
+      }
+
+      const nextWaveNumber = this.currentWaveIndex + 2
+      this.wavePhase = 'intermission'
+      this.waveDelayTimer = 2
+      this.showWaveMessage('ROUND OVER', `Level ${nextWaveNumber} starts in 2 seconds`, 1.8)
+    },
+
+    updateWaveState(deltaTime) {
+      if (this.isGameOver || this.isVictory) return
+
+      if (this.wavePhase === 'boot') {
+        this.wavePhase = 'intermission'
+        this.waveDelayTimer = 1.25
+        this.showWaveMessage('ZOMBIE COW ARENA', 'Level 1 starts now', 1.25)
+        return
+      }
+
+      if (this.wavePhase === 'intermission') {
+        this.waveDelayTimer -= deltaTime
+        if (this.waveDelayTimer <= 0) {
+          this.startWave(this.currentWaveIndex + 1)
+        }
+        return
+      }
+
+      if (this.wavePhase === 'active' && this.getAliveCowCount() === 0) {
+        if (this.currentWaveIndex >= this.waveConfig.length - 1) {
+          this.triggerVictory()
+        } else {
+          this.beginNextWaveDelay()
+        }
+      }
+    },
+
+    triggerVictory() {
+      if (this.isVictory || typeof document === 'undefined') return
+      this.isVictory = true
+      this.wavePhase = 'complete'
+
+      if (this.gameOverOverlay?.parentNode) {
+        this.gameOverOverlay.parentNode.removeChild(this.gameOverOverlay)
+      }
+
+      const overlay = document.createElement('div')
+      overlay.style.position = 'fixed'
+      overlay.style.inset = '0'
+      overlay.style.zIndex = '10003'
+      overlay.style.display = 'flex'
+      overlay.style.alignItems = 'center'
+      overlay.style.justifyContent = 'center'
+      overlay.style.background = 'rgba(0, 0, 0, 0.84)'
+      overlay.style.fontFamily = 'Arial, sans-serif'
+
+      const panel = document.createElement('div')
+      panel.style.minWidth = '340px'
+      panel.style.maxWidth = '92vw'
+      panel.style.padding = '28px 26px'
+      panel.style.borderRadius = '14px'
+      panel.style.border = '4px solid rgba(120, 255, 120, 0.9)'
+      panel.style.background = 'rgba(8, 25, 8, 0.95)'
+      panel.style.color = '#ffffff'
+      panel.style.textAlign = 'center'
+      panel.style.boxShadow = '0 0 26px rgba(80, 255, 120, 0.25)'
+
+      const title = document.createElement('div')
+      title.textContent = 'VICTORY'
+      title.style.fontSize = '38px'
+      title.style.fontWeight = '900'
+      title.style.letterSpacing = '2px'
+      title.style.marginBottom = '14px'
+
+      const summary = document.createElement('div')
+      summary.textContent = `Remaining Health: ${Math.max(0, Math.round(this.playerState.health))} / ${Math.max(1, Math.round(this.playerState.maxHealth))}`
+      summary.style.fontSize = '20px'
+      summary.style.marginBottom = '10px'
+
+      const time = document.createElement('div')
+      time.textContent = `Time Spent: ${this.survivalTime.toFixed(1)} seconds`
+      time.style.fontSize = '20px'
+      time.style.marginBottom = '20px'
+
+      const button = document.createElement('button')
+      button.textContent = 'Play Again'
+      button.style.padding = '10px 18px'
+      button.style.fontSize = '18px'
+      button.style.fontWeight = '800'
+      button.style.borderRadius = '10px'
+      button.style.border = '2px solid rgba(255,255,255,0.25)'
+      button.style.background = '#3aa34f'
+      button.style.color = '#fff'
+      button.style.cursor = 'pointer'
+      button.onclick = () => window.location.reload()
+
+      panel.appendChild(title)
+      panel.appendChild(summary)
+      panel.appendChild(time)
+      panel.appendChild(button)
+      overlay.appendChild(panel)
+      document.body.appendChild(overlay)
+
+      this.gameOverOverlay = overlay
+      this.showWaveMessage('ROUND OVER', 'All 3 levels cleared', 2.0)
     },
 
     damagePlayer(player, amount, sourcePosition = null, pushStrength = 1.35) {
@@ -464,21 +693,6 @@ export function createTestWorld(scene, audio = {}) {
     damageable: true,
   })
 
-  const cowSpawnPositions = [
-    new THREE.Vector3(0, 0, -5),
-    new THREE.Vector3(-10, 0, -10),
-    new THREE.Vector3(0, 0, -12),
-    new THREE.Vector3(10, 0, -10),
-  ]
-
-  for (const spawnPosition of cowSpawnPositions) {
-    const cow = createCowDummy(world, spawnPosition, audio)
-    world.cowEntities.push(cow)
-    entities.push(cow)
-  }
-
-  world.cowEntity = world.cowEntities[0] || null
-
   world.markNavDirty()
 
   return world
@@ -745,7 +959,7 @@ function createCowDummy(world, position, audio) {
 
     sound.setBuffer(buffer)
     sound.setRefDistance(18)
-    sound.setVolume(entity.cowVolume ?? 0.45)
+    sound.setVolume(0.45)
   }
 
   if (audio.mooBuffer) {
