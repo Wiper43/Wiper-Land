@@ -245,3 +245,205 @@ and now into
 **a small combat encounter**
 
 Phase 2.5 is the first step where the game starts to feel like a real playable combat scenario rather than a test room.
+
+Additions to PROJECT_STATE.md
+
+Add the following section near the bottom of the file.
+
+Phase 2.5 Progress Update
+
+Several systems from the Phase 2.5 goals are now partially implemented in the prototype.
+
+Player combat response
+
+The player now has:
+
+100 HP
+
+damage intake from cow attacks
+
+screen HUD displaying player HP
+
+survival timer display
+
+damage sound when hit
+
+Player health is managed inside the world simulation loop and updated in the UI layer.
+
+Cow attack behavior
+
+Cows now:
+
+detect the player
+
+move toward the player
+
+stop at attack distance
+
+fire a visual beam toward the player
+
+apply gameplay damage to the player
+
+Cow attacks currently deal:
+
+10 damage per hit
+Animated pushback system
+
+The combat system now includes a smooth knockback system.
+
+Features:
+
+knockback is applied as a velocity impulse
+
+movement decays over time using damping
+
+pushback respects world colliders
+
+player will slide along walls instead of clipping
+
+Special fix implemented:
+
+When the player stands on top of a block, the knockback system ignores the supporting collider beneath the player, allowing horizontal shove to work correctly.
+
+Player hit feedback
+
+Current hit feedback includes:
+
+pushback
+
+HP reduction
+
+damage sound
+
+beam visual from the attacking cow
+
+Known issue
+
+Cow navigation occasionally gets stuck on tight corners or obstacles.
+
+This is a pathing issue, not a combat issue.
+
+Planned improvements later:
+
+better path smoothing
+
+steering when path node becomes blocked
+
+dynamic repathing
+
+Next Development Session Goals
+Goal 1 — Living Entity Pushback System
+
+Add knockback behavior for living entities only.
+
+Living entities should include:
+
+cows
+future enemies
+boss creatures
+
+When hit by attacks they should:
+
+take damage
+
+receive knockback impulse
+
+slide smoothly using the same pushback system as the player
+
+Goal 2 — Non-Living Entity Rules
+
+Non-living objects must not move when hit.
+
+Non-living entities include:
+
+blocks
+terrain
+arena walls
+environment props
+
+They should:
+
+take damage if destructible
+
+never receive knockback
+
+Implementation plan
+
+Introduce a simple classification property on world entities.
+
+Example:
+
+entity.isLiving = true
+
+Usage rules:
+
+if (entity.isLiving)
+    applyKnockback()
+else
+    applyDamageOnly()
+
+This keeps the combat pipeline consistent for all enemies.
+
+Goal 3 — Cow Knockback
+
+When the player hits a cow:
+
+the cow should receive a smaller knockback impulse
+
+cow movement should temporarily yield to knockback velocity
+
+cow pathing resumes after knockback decays
+
+Desired feel:
+
+player hit → cow nudged backwards slightly
+cow hit → player pushed harder
+Goal 4 — Combat System Consolidation
+
+Refactor combat logic so that all attacks pass through a single pipeline:
+
+attack event
+↓
+raycast determines hit
+↓
+damage applied
+↓
+living entity knockback applied
+↓
+visual effects triggered
+
+This will make future additions easier:
+
+wolves
+
+zombies
+
+bosses
+
+multiplayer combat
+
+Longer Term Goals (Post Phase 2.5)
+
+Future improvements once the mini-game is stable:
+
+improved cow navigation
+
+enemy spawn system
+
+wave survival mode
+
+enemy variety
+
+impact feedback (camera shake / screen flash)
+
+boss encounters
+
+Current Direction Reminder
+
+Wiper Land is transitioning from:
+
+movement sandbox
+→ combat prototype
+→ playable combat encounter
+
+Phase 2.5 is successfully evolving the project into a real gameplay loop rather than a test arena
