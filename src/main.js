@@ -10,7 +10,7 @@ import { createHeldItem } from './heldItem.js'
 import { createBeamVisualSystem } from './beamVisual.js'
 import { updateCow } from "./cowAI.js"
 import { createNavGrid } from "./navGrid.js"
-import { VoxelWorld } from './world/world.js'
+import { BlockWorld } from './world/blockWorld.js'
 import { worldToBlock } from './world/worldMath.js'
 
 const app = document.getElementById('app')
@@ -31,9 +31,9 @@ try {
   }
 
   const world = createTestWorld(game.scene, worldAudio)
-  const voxelWorld = new VoxelWorld(game.scene)
+  const blockWorld = new BlockWorld(game.scene)
 
-  const player = createPlayer(game.camera, input, world,voxelWorld)
+  const player = createPlayer(game.camera, input, world,blockWorld)
   const combat = createCombat({
     camera: game.camera,
     world,
@@ -125,10 +125,10 @@ function tryBreakVoxelBlock() {
     const pz = origin.z + direction.z * t
 
     const { bx, by, bz } = worldToBlock(px, py, pz)
-    const blockId = voxelWorld.getBlockId(bx, by, bz)
+    const blockId = blockWorld.getBlockId(bx, by, bz)
 
     if (blockId !== 0) {
-      const broke = voxelWorld.breakBlock(bx, by, bz)
+      const broke = blockWorld.breakBlock(bx, by, bz)
       console.log('Break voxel block:', { bx, by, bz, blockId, broke })
       return
     }
@@ -157,7 +157,7 @@ window.addEventListener('keydown', (event) => {
       heldItem.update(deltaTime)
       beamVisuals.update(deltaTime)
       world.update(deltaTime, game.camera, player)
-      voxelWorld.update(deltaTime, player)
+      blockWorld.update(deltaTime, player)
 
       // --------------------------------------------------------
       // LEFT CLICK = DIRECT ATTACK

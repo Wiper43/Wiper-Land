@@ -23,12 +23,12 @@ import {
 import { generateBlock } from './terrain.js'
 import { buildChunkMesh, createWorldBlockMaterial } from './mesher.js'
 
-export class VoxelWorld {
+export class BlockWorld {
   constructor(scene) {
     this.scene = scene
 
     this.group = new THREE.Group()
-    this.group.name = 'VoxelWorld'
+    this.group.name = 'BlockWorld'
     this.scene.add(this.group)
 
     this.chunks = new Map()
