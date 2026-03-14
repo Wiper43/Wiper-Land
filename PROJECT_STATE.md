@@ -607,3 +607,28 @@ simple placement/destruction
 keep combat playable inside it
 
 That follows your intended build order exactly: movement → combat → world.
+
+3/13 project state
+Phase 3 is underway and the new BlockWorld terrain system is functional.
+
+Completed:
+- Added chunked voxel terrain system
+- Added block generation, meshing, destruction, and regeneration
+- Added player voxel floor + wall collision
+- Wired terrain into main loop
+- Confirmed blocks can be destroyed with F-key test and regenerate correctly
+- Renamed voxel manager to BlockWorld
+- Removed duplicate src/world/world.js
+
+Current architecture:
+- src/world.js = old gameplay world (cows/combat/nav)
+- src/world/blockWorld.js = new voxel terrain system
+
+Next goals:
+1. Add chunk rebuild limiter to prevent frame spikes
+2. Fully remove old floor/grid dependence
+3. Replace F-key test with proper block raycast
+4. Connect combat to block terrain
+5. Connect nav/AI to terrain changes
+6. Reduce reliance on old world colliders
+7. Add destruction/regeneration polish

@@ -25,6 +25,7 @@ import { buildChunkMesh, createWorldBlockMaterial } from './mesher.js'
 
 export class BlockWorld {
   constructor(scene) {
+    
     this.scene = scene
 
     this.group = new THREE.Group()
@@ -36,6 +37,7 @@ export class BlockWorld {
 
     this.loadedRadius = 2
     this.regenRetryDelay = 0.5
+    this.maxChunkRebuildsPerFrame = 2
 
     this.navDirty = false
     this.navRebuildCooldown = 0
@@ -248,18 +250,26 @@ export class BlockWorld {
   }
 
   rebuildDirtyChunks() {
-    for (const chunk of this.chunks.values()) {
-      if (!isChunkDirty(chunk)) continue
+  let rebuiltCount = 0
 
-      disposeChunkMesh(chunk)
+  for (const chunk of this.chunks.values()) {
+    if (!isChunkDirty(chunk)) continue
+    /*
+    if (rebuiltCount > 0) {
+  console.log('Chunk rebuilds this frame:', rebuiltCount)
+} */
+    if (rebuiltCount >= this.maxChunkRebuildsPerFrame) break
 
-      const mesh = buildChunkMesh(chunk, this, this.material)
-      setChunkMesh(chunk, mesh)
-      this.group.add(mesh)
+    disposeChunkMesh(chunk)
 
-      clearChunkDirty(chunk)
-    }
+    const mesh = buildChunkMesh(chunk, this, this.material)
+    setChunkMesh(chunk, mesh)
+    this.group.add(mesh)
+
+    clearChunkDirty(chunk)
+    rebuiltCount++
   }
+}
 
   markNavDirty() {
     this.navDirty = true
