@@ -1,12 +1,13 @@
 import * as THREE from 'three'
 
-export function createPlayer(camera, input, world) {
-  const FLOOR_Y = 0
+export function createPlayer(camera, input, world, terrain = null) {
+  const FLOOR_Y = -100
 
   // Capsule-ish player settings
   const PLAYER_HEIGHT = 1.8
   const PLAYER_RADIUS = 0.35
   const EYE_OFFSET = 1.7
+  const STEP_HEIGHT = 0.6
 
   // Movement tuning
   const GRAVITY = 24
@@ -18,13 +19,13 @@ export function createPlayer(camera, input, world) {
   const AIR_CONTROL = 0.35
 
   // position = feet position
-  const position = new THREE.Vector3(0, FLOOR_Y, 8)
+  const position = new THREE.Vector3(0, 2, 8)
   const previousPosition = new THREE.Vector3().copy(position)
   const velocity = new THREE.Vector3(0, 0, 0)
 
   let yaw = 0
   let pitch = 0
-  let isGrounded = true
+  let isGrounded = false
   let jumpQueued = false
 
   const forward = new THREE.Vector3()
@@ -72,6 +73,80 @@ export function createPlayer(camera, input, world) {
     return position.y + PLAYER_HEIGHT
   }
 
+  function isSolidVoxelAt(bx, by, bz) {
+    if (!terrain || typeof terrain.isSolidBlock !== 'function') return false
+    return terrain.isSolidBlock(bx, by, bz)
+  }
+
+  function resolveVoxelVerticalCollisions() {
+    if (!terrain) return
+
+    const minBX = Math.floor(position.x - PLAYER_RADIUS)
+    const maxBX = Math.floor(position.x + PLAYER_RADIUS)
+    const minBZ = Math.floor(position.z - PLAYER_RADIUS)
+    const maxBZ = Math.floor(position.z + PLAYER_RADIUS)
+
+    if (velocity.y <= 0) {
+      const footY = position.y
+      const checkBy = Math.floor(footY)
+
+      for (let bz = minBZ; bz <= maxBZ; bz++) {
+        for (let bx = minBX; bx <= maxBX; bx++) {
+          if (!isSolidVoxelAt(bx, checkBy, bz)) continue
+
+          const blockTop = checkBy + 1
+          const wasAbove = previousPosition.y >= blockTop - 0.001
+          const crossedTop = position.y <= blockTop && previousPosition.y >= blockTop
+          const nearTop = position.y >= blockTop - STEP_HEIGHT
+
+          const xOverlap =
+            position.x + PLAYER_RADIUS > bx &&
+            position.x - PLAYER_RADIUS < bx + 1
+
+          const zOverlap =
+            position.z + PLAYER_RADIUS > bz &&
+            position.z - PLAYER_RADIUS < bz + 1
+
+          if (xOverlap && zOverlap && wasAbove && crossedTop && nearTop) {
+            position.y = blockTop
+            velocity.y = 0
+            isGrounded = true
+            return
+          }
+        }
+      }
+    }
+
+    if (velocity.y > 0) {
+      const headY = getTop()
+      const checkBy = Math.floor(headY)
+
+      for (let bz = minBZ; bz <= maxBZ; bz++) {
+        for (let bx = minBX; bx <= maxBX; bx++) {
+          if (!isSolidVoxelAt(bx, checkBy, bz)) continue
+
+          const blockBottom = checkBy
+          const previousTop = previousPosition.y + PLAYER_HEIGHT
+          const crossedBottom = headY >= blockBottom && previousTop <= blockBottom
+
+          const xOverlap =
+            position.x + PLAYER_RADIUS > bx &&
+            position.x - PLAYER_RADIUS < bx + 1
+
+          const zOverlap =
+            position.z + PLAYER_RADIUS > bz &&
+            position.z - PLAYER_RADIUS < bz + 1
+
+          if (xOverlap && zOverlap && crossedBottom) {
+            position.y = blockBottom - PLAYER_HEIGHT
+            velocity.y = 0
+            return
+          }
+        }
+      }
+    }
+  }
+
   function resolveVerticalCollisions() {
     isGrounded = false
 
@@ -112,6 +187,8 @@ export function createPlayer(camera, input, world) {
       }
     }
 
+    resolveVoxelVerticalCollisions()
+
     if (position.y <= FLOOR_Y) {
       position.y = FLOOR_Y
       velocity.y = 0
@@ -119,7 +196,7 @@ export function createPlayer(camera, input, world) {
     }
   }
 
-  function resolveHorizontalCollisions() {
+  function resolveOldWorldHorizontalCollisions() {
     const bottom = getBottom()
     const top = getTop()
 
@@ -148,20 +225,12 @@ export function createPlayer(camera, input, world) {
 
         if (minPen === leftPen) {
           position.x = box.min.x - PLAYER_RADIUS
-          dx = -1
-          dz = 0
         } else if (minPen === rightPen) {
           position.x = box.max.x + PLAYER_RADIUS
-          dx = 1
-          dz = 0
         } else if (minPen === backPen) {
           position.z = box.min.z - PLAYER_RADIUS
-          dx = 0
-          dz = -1
         } else {
           position.z = box.max.z + PLAYER_RADIUS
-          dx = 0
-          dz = 1
         }
       } else {
         const dist = Math.sqrt(distSq)
@@ -181,7 +250,86 @@ export function createPlayer(camera, input, world) {
     }
   }
 
+  function resolveVoxelHorizontalAxis(axis) {
+    if (!terrain) return
+
+    const minBX = Math.floor(position.x - PLAYER_RADIUS)
+    const maxBX = Math.floor(position.x + PLAYER_RADIUS)
+    const minBY = Math.floor(getBottom())
+    const maxBY = Math.floor(getTop() - 0.001)
+    const minBZ = Math.floor(position.z - PLAYER_RADIUS)
+    const maxBZ = Math.floor(position.z + PLAYER_RADIUS)
+
+    for (let by = minBY; by <= maxBY; by++) {
+      for (let bz = minBZ; bz <= maxBZ; bz++) {
+        for (let bx = minBX; bx <= maxBX; bx++) {
+          if (!isSolidVoxelAt(bx, by, bz)) continue
+
+          const voxelMinX = bx
+          const voxelMaxX = bx + 1
+          const voxelMinZ = bz
+          const voxelMaxZ = bz + 1
+
+          const pMinX = position.x - PLAYER_RADIUS
+          const pMaxX = position.x + PLAYER_RADIUS
+          const pMinZ = position.z - PLAYER_RADIUS
+          const pMaxZ = position.z + PLAYER_RADIUS
+
+          const xOverlap = pMinX < voxelMaxX && pMaxX > voxelMinX
+          const zOverlap = pMinZ < voxelMaxZ && pMaxZ > voxelMinZ
+
+          if (!xOverlap || !zOverlap) continue
+
+          if (axis === 'x') {
+            if (velocity.x > 0) {
+              position.x = voxelMinX - PLAYER_RADIUS
+            } else if (velocity.x < 0) {
+              position.x = voxelMaxX + PLAYER_RADIUS
+            } else {
+              const pushLeft = pMaxX - voxelMinX
+              const pushRight = voxelMaxX - pMinX
+              if (pushLeft < pushRight) {
+                position.x -= pushLeft
+              } else {
+                position.x += pushRight
+              }
+            }
+            velocity.x = 0
+          } else if (axis === 'z') {
+            if (velocity.z > 0) {
+              position.z = voxelMinZ - PLAYER_RADIUS
+            } else if (velocity.z < 0) {
+              position.z = voxelMaxZ + PLAYER_RADIUS
+            } else {
+              const pushBack = pMaxZ - voxelMinZ
+              const pushFront = voxelMaxZ - pMinZ
+              if (pushBack < pushFront) {
+                position.z -= pushBack
+              } else {
+                position.z += pushFront
+              }
+            }
+            velocity.z = 0
+          }
+        }
+      }
+    }
+  }
+
+  function resolveHorizontalCollisions() {
+    position.x += velocity.x * deltaTimeForAxis
+    resolveOldWorldHorizontalCollisions()
+    resolveVoxelHorizontalAxis('x')
+
+    position.z += velocity.z * deltaTimeForAxis
+    resolveOldWorldHorizontalCollisions()
+    resolveVoxelHorizontalAxis('z')
+  }
+
+  let deltaTimeForAxis = 0
+
   function update(deltaTime) {
+    deltaTimeForAxis = deltaTime
     previousPosition.copy(position)
 
     const { dx, dy } = input.consumeMouseDelta()
@@ -234,8 +382,6 @@ export function createPlayer(camera, input, world) {
     position.y += velocity.y * deltaTime
     resolveVerticalCollisions()
 
-    position.x += velocity.x * deltaTime
-    position.z += velocity.z * deltaTime
     resolveHorizontalCollisions()
 
     camera.position.set(
@@ -249,6 +395,8 @@ export function createPlayer(camera, input, world) {
     update,
     position,
     velocity,
+    radius: PLAYER_RADIUS,
+    height: PLAYER_HEIGHT,
     get isGrounded() {
       return isGrounded
     }

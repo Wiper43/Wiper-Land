@@ -585,11 +585,11 @@ export function createTestWorld(scene, audio = {}) {
   dir.position.set(8, 14, 6)
   scene.add(dir)
 
-  const floorGeo = new THREE.PlaneGeometry(40, 40)
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a7a3a })
-  const floor = new THREE.Mesh(floorGeo, floorMat)
-  floor.rotation.x = -Math.PI / 2
-  scene.add(floor)
+  //const floorGeo = new THREE.PlaneGeometry(40, 40)
+ // const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a7a3a })
+  //const floor = new THREE.Mesh(floorGeo, floorMat)
+ // floor.rotation.x = -Math.PI / 2
+  //scene.add(floor)
 
   const grid = new THREE.GridHelper(40, 40)
   scene.add(grid)

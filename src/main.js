@@ -10,6 +10,8 @@ import { createHeldItem } from './heldItem.js'
 import { createBeamVisualSystem } from './beamVisual.js'
 import { updateCow } from "./cowAI.js"
 import { createNavGrid } from "./navGrid.js"
+import { VoxelWorld } from './world/world.js'
+import { worldToBlock } from './world/worldMath.js'
 
 const app = document.getElementById('app')
 
@@ -29,7 +31,9 @@ try {
   }
 
   const world = createTestWorld(game.scene, worldAudio)
-  const player = createPlayer(game.camera, input, world)
+  const voxelWorld = new VoxelWorld(game.scene)
+
+  const player = createPlayer(game.camera, input, world,voxelWorld)
   const combat = createCombat({
     camera: game.camera,
     world,
@@ -104,6 +108,44 @@ try {
 
   let lastTime = performance.now()
 
+//inserting trybreakvoxelblock()
+function tryBreakVoxelBlock() {
+  const origin = new THREE.Vector3()
+  const direction = new THREE.Vector3()
+
+  game.camera.getWorldPosition(origin)
+  game.camera.getWorldDirection(direction)
+
+  const maxDistance = 6
+  const step = 0.1
+
+  for (let t = 0; t <= maxDistance; t += step) {
+    const px = origin.x + direction.x * t
+    const py = origin.y + direction.y * t
+    const pz = origin.z + direction.z * t
+
+    const { bx, by, bz } = worldToBlock(px, py, pz)
+    const blockId = voxelWorld.getBlockId(bx, by, bz)
+
+    if (blockId !== 0) {
+      const broke = voxelWorld.breakBlock(bx, by, bz)
+      console.log('Break voxel block:', { bx, by, bz, blockId, broke })
+      return
+    }
+  }
+
+  console.log('No voxel block found in range')
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.repeat) return
+
+  if (event.code === 'KeyF') {
+    tryBreakVoxelBlock()
+  }
+})
+//inserting trybreakvoxelblock()
+
   function animate(now) {
     requestAnimationFrame(animate)
 
@@ -115,6 +157,7 @@ try {
       heldItem.update(deltaTime)
       beamVisuals.update(deltaTime)
       world.update(deltaTime, game.camera, player)
+      voxelWorld.update(deltaTime, player)
 
       // --------------------------------------------------------
       // LEFT CLICK = DIRECT ATTACK
