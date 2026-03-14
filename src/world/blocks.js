@@ -22,6 +22,7 @@ export const BLOCK_DEFS = Object.freeze({
     destructible: true,
     regenerates: true,
     regenDelay: 4.0,
+    hitPoints: 5,
   },
 
   [BLOCK.DIRT]: {
@@ -31,6 +32,7 @@ export const BLOCK_DEFS = Object.freeze({
     destructible: true,
     regenerates: true,
     regenDelay: 5.0,
+    hitPoints: 8,
   },
 
   [BLOCK.STONE]: {
@@ -40,6 +42,7 @@ export const BLOCK_DEFS = Object.freeze({
     destructible: true,
     regenerates: true,
     regenDelay: 6.0,
+    hitPoints: 30,
   },
 })
 
@@ -61,4 +64,8 @@ export function doesBlockRegenerate(blockId) {
 
 export function getBlockRegenDelay(blockId) {
   return getBlockDef(blockId).regenDelay ?? 0
+}
+
+export function getBlockHitPoints(blockId) {
+  return getBlockDef(blockId).hitPoints ?? Infinity
 }

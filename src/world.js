@@ -40,7 +40,7 @@ export function createTestWorld(scene, audio = {}) {
     cowVolume: 0.8,
     waveConfig: [1, 3, 10],
     waveSpawnPositions: [
-      new THREE.Vector3(0, 0, -5),
+      new THREE.Vector3(0, 0, -12),
       new THREE.Vector3(-10, 0, -10),
       new THREE.Vector3(0, 0, -12),
       new THREE.Vector3(10, 0, -10),

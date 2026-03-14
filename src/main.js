@@ -12,6 +12,7 @@ import { updateCow } from "./cowAI.js"
 import { createNavGrid } from "./navGrid.js"
 import { BlockWorld } from './world/blockWorld.js'
 import { worldToBlock } from './world/worldMath.js'
+import { getBlockHitPoints } from './world/blocks.js'
 
 const app = document.getElementById('app')
 
@@ -33,6 +34,10 @@ try {
   const world = createTestWorld(game.scene, worldAudio)
   const blockWorld = new BlockWorld(game.scene)
 
+  //DEBUG LINE
+
+  
+//debug line
   const player = createPlayer(game.camera, input, world,blockWorld)
   const combat = createCombat({
     camera: game.camera,
@@ -107,7 +112,8 @@ try {
   refreshSpellbook()
 
   let lastTime = performance.now()
-
+/////////////////////////////////////
+/////////ATTACK/////////////////
 //inserting trybreakvoxelblock()
 function tryBreakVoxelBlock() {
   const origin = new THREE.Vector3()
@@ -117,26 +123,57 @@ function tryBreakVoxelBlock() {
   game.camera.getWorldDirection(direction)
 
   const maxDistance = 6
-  const step = 0.1
+  const hits = blockWorld.traceRayAllHits(origin, direction, maxDistance)
 
-  for (let t = 0; t <= maxDistance; t += step) {
-    const px = origin.x + direction.x * t
-    const py = origin.y + direction.y * t
-    const pz = origin.z + direction.z * t
+if (hits.length > 0) {
+  const hit = hits[0]
 
-    const { bx, by, bz } = worldToBlock(px, py, pz)
-    const blockId = blockWorld.getBlockId(bx, by, bz)
+  const broke = blockWorld.breakBlock(hit.bx, hit.by, hit.bz)
 
-    if (blockId !== 0) {
-      const broke = blockWorld.breakBlock(bx, by, bz)
-      console.log('Break voxel block:', { bx, by, bz, blockId, broke })
-      return
-    }
-  }
+  console.log('Break voxel block:', hit)
+
+  return
+}
 
   console.log('No voxel block found in range')
 }
+function applySpellToVoxelBlocks(attackData) {
+  const origin = new THREE.Vector3()
+  const direction = new THREE.Vector3()
 
+  game.camera.getWorldPosition(origin)
+  game.camera.getWorldDirection(direction)
+
+  const hits = blockWorld.traceRayAllHits(origin, direction, attackData.range ?? 6)
+
+  let remainingPower = attackData.basePower ?? 0
+  let brokenCount = 0
+
+  for (const hit of hits) {
+    const hp = getBlockHitPoints(hit.blockId)
+
+    if (remainingPower >= hp) {
+      const broke = blockWorld.breakBlock(hit.bx, hit.by, hit.bz)
+
+      if (broke) {
+        remainingPower -= hp
+        brokenCount++
+      }
+    } else {
+      return {
+        brokenCount,
+        stoppedOn: hit,
+        remainingPower,
+      }
+    }
+  }
+
+  return {
+    brokenCount,
+    stoppedOn: null,
+    remainingPower,
+  }
+}
 window.addEventListener('keydown', (event) => {
   if (event.repeat) return
 
@@ -177,6 +214,17 @@ window.addEventListener('keydown', (event) => {
       // --------------------------------------------------------
       if (input.consumeAltAttack()) {
   const result = combat.trySecondaryAttack(now)
+  
+  
+  let blockSpellResult = null
+
+if (result.type === 'miss' && result.attack?.kind === 'spell') {
+  blockSpellResult = applySpellToVoxelBlocks(result.attack)
+
+  if (blockSpellResult.brokenCount > 0) {
+    console.log('Right Click: spell broke voxel blocks', blockSpellResult)
+  }
+}
 
   if (result.type !== 'cooldown' && result.attack) {
     heldItem.cast()
@@ -208,8 +256,45 @@ window.addEventListener('keydown', (event) => {
       thickness: 0.045,
     })
   }
+  //debug
+const testDir = { x: 1, y: -1, z: 0 };
 
+console.log(
+  "Ray hits:",
+  blockWorld.traceRayAllHits(
+    {
+      x: Math.floor(player.position.x),
+      y: Math.floor(player.position.y),
+      z: Math.floor(player.position.z)
+    },
+    testDir,
+    12
+  )
+);
+//debug
+// console.log("Player pos:", player.position);
+// console.log(
+//   "Block at player feet:",
+//   blockWorld.getBlockId(
+//     Math.floor(player.position.x),
+//     Math.floor(player.position.y - 1),
+//     Math.floor(player.position.z)
+//   )
+// );
+// console.log(
+//   "Is solid at feet:",
+//   blockWorld.isSolidBlock(
+//     Math.floor(player.position.x),
+//     Math.floor(player.position.y - 1),
+//     Math.floor(player.position.z)
+//   )
+// );
+//debg
+  if (blockSpellResult?.brokenCount > 0) {
+  console.log(`Right Click: ${result.attack?.name ?? 'Spell'} broke ${blockSpellResult.brokenCount} voxel block(s)`)
+} else {
   logCombatResult(result, 'Right Click')
+}
 }
 
       const selected = combat.attacks[combat.getSelectedRightClickAttack()]
