@@ -625,10 +625,103 @@ Current architecture:
 - src/world/blockWorld.js = new voxel terrain system
 
 Next goals:
-1. Add chunk rebuild limiter to prevent frame spikes
+
 2. Fully remove old floor/grid dependence
 3. Replace F-key test with proper block raycast
 4. Connect combat to block terrain
 5. Connect nav/AI to terrain changes
 6. Reduce reliance on old world colliders
 7. Add destruction/regeneration polish
+
+
+
+
+
+Short Project State (Update)
+
+Date: 2026-03-14
+
+Phase 3 – BlockWorld Integration Progress
+
+BlockWorld terrain system is now functional and integrated with the core loop.
+
+Completed
+
+Chunked voxel terrain system working
+
+Block generation, meshing, destruction, and regeneration implemented
+
+Player voxel collision (floor + walls)
+
+Terrain connected to main game loop
+
+Blocks can be destroyed and regenerate correctly
+
+BlockWorld API created:
+
+getBlock()
+
+isSolidBlock()
+
+traceRayAllHits()
+
+Spell system can now break multiple blocks using ray traversal and block HP
+
+Block regeneration now pauses if player is within 10 units
+
+Cow collision investigation paused
+
+New test entity system started
+
+Created src/entities/spider.js
+
+Spider entity successfully:
+
+spawns
+
+collides with voxel terrain
+
+falls into holes correctly
+
+This confirms entity ↔ BlockWorld collision works.
+
+Current Architecture
+src/world.js              -> legacy gameplay world (cows/combat/nav)
+src/world/blockWorld.js   -> voxel terrain system
+src/entities/spider.js    -> test entity for voxel interaction
+
+Spider is now the reference entity for terrain physics testing.
+
+Next Goals
+
+Continue entity system development using the spider as the test platform.
+
+Best next order
+
+give spider HP + takeDamage()
+
+make combat able to hit spider
+
+add simple HP text/bar above it
+
+add simple wandering movement
+
+After this:
+
+migrate cows into src/entities/
+
+unify entity collision with BlockWorld
+
+begin replacing legacy world collider logic
+
+When you come back tomorrow, the very first thing I recommend is adding spider combat hits. That will connect:
+
+combat system
+↓
+traceRayAllHits
+↓
+entities
+↓
+blockWorld
+
+Once that loop is working, your combat, terrain, and entities will finally be unified.

@@ -13,6 +13,7 @@ import { createNavGrid } from "./navGrid.js"
 import { BlockWorld } from './world/blockWorld.js'
 import { worldToBlock } from './world/worldMath.js'
 import { getBlockHitPoints } from './world/blocks.js'
+import { createSpider, updateSpider } from './entities/spider.js'
 
 const app = document.getElementById('app')
 
@@ -46,6 +47,9 @@ try {
   const heldItem = createHeldItem(game.camera)
   const beamVisuals = createBeamVisualSystem(game.scene)
   const tempAimDirection = new THREE.Vector3()
+// add spider
+  const spider = createSpider(new THREE.Vector3(5, 10, 5))
+game.scene.add(spider.mesh)
 
   // ============================================================
   // LOAD COW AUDIO
@@ -195,6 +199,8 @@ window.addEventListener('keydown', (event) => {
       beamVisuals.update(deltaTime)
       world.update(deltaTime, game.camera, player)
       blockWorld.update(deltaTime, player)
+      updateSpider(spider, deltaTime, blockWorld)
+      
 
       // --------------------------------------------------------
       // LEFT CLICK = DIRECT ATTACK
