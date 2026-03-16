@@ -725,3 +725,419 @@ entities
 blockWorld
 
 Once that loop is working, your combat, terrain, and entities will finally be unified.
+
+PROJECT_STATE — Wiper Land
+
+Date: 2026-03-15
+
+Current State
+
+Wiper Land is currently in a hybrid architecture phase.
+
+There are 2 systems running side by side:
+
+1. Legacy gameplay world
+
+Handled mostly by:
+
+src/world.js
+
+src/combat.js
+
+src/cowAI.js
+
+src/navGrid.js
+
+This side currently owns a lot of gameplay behavior, including:
+
+legacy entities/cows
+
+combat raycast against entities
+
+floating damage text
+
+attack beams
+
+overlays / wave-style logic
+
+some UI/game state ownership
+
+2. New voxel world
+
+Handled mostly by:
+
+src/world/blockWorld.js
+
+src/world/chunk.js
+
+src/world/mesher.js
+
+src/world/terrain.js
+
+This side currently supports:
+
+chunked voxel terrain
+
+block generation
+
+block meshing
+
+block destruction
+
+block regeneration
+
+player voxel collision
+
+traceRayAllHits() voxel ray traversal
+
+block HP / spell interaction
+
+Bridge prototype
+
+Current bridge entity:
+
+src/entities/spider.js
+
+Spider currently proves:
+
+entity can spawn in the voxel world
+
+entity collides with voxel terrain
+
+entity falls into holes correctly
+
+That means entity ↔ BlockWorld collision is confirmed working.
+
+Important Findings
+
+Spider is currently not yet a full gameplay entity.
+
+Spider currently has:
+
+mesh
+
+gravity
+
+velocity
+
+grounded state
+
+simple voxel collision
+
+Spider currently does not have:
+
+health
+
+maxHealth
+
+takeDamage()
+
+isDead
+
+canTakeDamage
+
+blocksAttack
+
+health bar/text
+
+registration in a shared entity system
+
+Combat is already farther along than expected.
+
+src/combat.js already:
+
+raycasts against meshes in world.entities
+
+maps hit mesh back to entity
+
+calls entity.takeDamage(...)
+
+respects canTakeDamage
+
+skips dead entities
+
+So the missing link is not rewriting combat first.
+
+The missing link is:
+
+make spider match the combat/entity contract
+
+make spider visible to combat
+
+then unify entity hits with voxel block hits
+
+Architecture Goal
+
+Move away from:
+
+legacy world.js
+
+blockWorld.js
+
+bridge code in main.js
+
+Toward a scalable voxel-native structure:
+
+Future target structure
+
+Game
+
+BlockWorld
+
+EntitySystem
+
+CombatSystem
+
+SpawnSystem
+
+UI / FX
+
+Region / Biome support
+
+Core rule:
+
+voxel world becomes the real source of truth
+
+all gameplay systems plug into it
+
+Scalability Goal
+
+The long-term goal is to support:
+
+easy addition of new monsters
+
+many monster types across different regions
+
+data-driven monster definitions
+
+reusable behavior modules
+
+region/biome-based spawning
+
+manageable scaling without hardcoding every species
+
+Key design principle
+
+Species should be data.
+Behavior should be modular.
+Systems should own rules.
+
+That means:
+
+monster stats live in definitions
+
+shared systems handle movement/combat/spawning
+
+monster files stay thin
+
+Recommended Development Method
+
+Chosen workflow:
+
+Option 4 — Hybrid + Surgical Patch Method
+
+Use:
+
+step-by-step coaching for important learning pieces
+
+complete file patches for boring or heavy sections
+
+small controlled edits, not giant rewrites
+
+Do not:
+
+start over
+
+attempt a massive refactor in one pass
+
+request a whole replacement project immediately
+
+Current Best Migration Strategy
+
+Do not fully refactor yet.
+
+Instead, use the spider as the first voxel-native entity template.
+
+Correct migration order
+
+make spider a real damageable entity
+
+register spider so combat can hit it
+
+unify combat result between spider hit and block hit
+
+move visuals/UI helpers out of legacy ownership
+
+migrate cows later
+
+add spawning/regions later
+
+retire world.js only after new systems are proven
+
+Best Immediate Milestone
+Make the spider feel alive and killable
+
+This is the next practical step.
+
+Goal:
+
+player can attack spider
+
+spider has HP
+
+spider takes damage
+
+spider shows HP text/bar
+
+spider can die and be removed cleanly
+
+This is the first important bridge between:
+
+combat
+
+entities
+
+voxel terrain
+
+It is also the safest beginner-friendly step.
+
+Next Chat Goal
+
+In the next chat, continue with the hybrid surgical patch workflow.
+
+First coding task
+
+Implement spider as the first real voxel-native combat entity:
+
+add health fields
+
+add takeDamage()
+
+add death handling
+
+make combat able to hit spider
+
+add simple HP display
+
+Only after that:
+
+unify nearest hit between spider and block
+
+Short Summary
+
+Wiper Land already has:
+
+working voxel terrain
+
+block destruction/regeneration
+
+player voxel collision
+
+working combat foundation
+
+a spider test entity that proves voxel entity collision works
+
+The project should not restart.
+
+The correct path is:
+
+keep current project
+
+use small guided patches
+
+turn spider into the first true scalable entity
+
+gradually migrate from legacy world to voxel-native architecture
+
+3/15 11:32pm
+Wiper Land — Current State Notes
+Current status
+
+The game is in a playable state, and movement/controller changes made today improved feel enough to keep moving forward.
+
+There is still some mysterious intermittent lag / frame stutter in the game. It is not being fixed right now. Based on today's debugging, it may be related to bursty main-thread work such as voxel regeneration, chunk rebuilds, or another short hitch in the update/render path, but the exact root cause is still unresolved.
+
+For now, the lag is being treated as a known issue to revisit later.
+
+What we changed today
+1. Regeneration / block restore investigation
+
+Investigated the lag that happens when many blocks regenerate around the same time.
+
+Identified that regen bursts can likely cause chunk rebuild spikes and visible stutter.
+
+Added / discussed fixes to reduce regen bunching and make regeneration behavior safer to tune.
+
+Clarified how to temporarily disable regen or slow regen timing for debugging.
+
+2. Step-up movement for 1x1x1 blocks
+
+Reworked the player stepping logic so the character can walk onto 1-block voxel steps without needing to jump.
+
+Iterated through several versions until one felt good enough in-game.
+
+Adjusted stair movement so stepping up feels a bit slower and heavier instead of giving a boosted feeling.
+
+3. Camera feel while stepping
+
+Tuned the stair/camera feel multiple times.
+
+Reduced harsh snapping / bounce and landed on a version that feels acceptable for now.
+
+The camera is not considered perfect, but it is good enough to move on.
+
+4. Mouse spike / sudden over-turn bug
+
+Investigated the issue where the camera would occasionally turn more than expected.
+
+Found that mouse delta spikes were getting accumulated between frames.
+
+Patched input handling to clamp extreme mouse deltas and reset stale deltas on pointer-lock / focus changes.
+
+Result: the bad camera whip is controlled, even though an underlying occasional frame hitch may still exist.
+
+Known issues being deferred
+
+Intermittent frame stutter / mysterious lag still exists.
+
+Root cause has not been fully isolated.
+
+This is intentionally deferred until later.
+
+Current priority is architecture cleanup and bridging systems with the spider entity, not performance work.
+
+Current priority going forward
+
+Focus should shift away from micro-fixing movement/perf and back toward structure.
+
+Main next focus
+
+Clean up / improve project architecture.
+
+Bridge the current architecture with the spider entity.
+
+Make the spider work cleanly within the newer system direction instead of as a disconnected special case.
+
+Suggested goals for next coding session
+
+Review current architecture boundaries.
+
+Decide how the spider entity should plug into the architecture cleanly.
+
+Refactor any spider-specific logic that is too coupled to older code paths.
+
+Define a cleaner entity flow for update, combat, movement, and world interaction.
+
+Only return to lag investigation after architecture / spider integration is in a better place.
+
+Reminder for future me
+
+Do not get pulled back into performance rabbit holes immediately next session. The current intention is:
+
+accept the current lag for now
+
+continue architecture work
+
+connect / bridge the spider entity properly
+
+revisit the mysterious stutter later with a more deliberate profiling pass
