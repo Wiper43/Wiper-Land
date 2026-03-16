@@ -21,7 +21,7 @@ export const BLOCK_DEFS = Object.freeze({
     solid: true,
     destructible: true,
     regenerates: true,
-    regenDelay: 4.0,
+    regenDelay: 100.0,
     hitPoints: 5,
   },
 
@@ -31,8 +31,8 @@ export const BLOCK_DEFS = Object.freeze({
     solid: true,
     destructible: true,
     regenerates: true,
-    regenDelay: 5.0,
-    hitPoints: 8,
+    regenDelay: 100.0,
+    hitPoints: 5,
   },
 
   [BLOCK.STONE]: {
@@ -41,8 +41,8 @@ export const BLOCK_DEFS = Object.freeze({
     solid: true,
     destructible: true,
     regenerates: true,
-    regenDelay: 6.0,
-    hitPoints: 30,
+    regenDelay: 100.0,
+    hitPoints: 5,
   },
 })
 
