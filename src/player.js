@@ -4,9 +4,9 @@ export function createPlayer(camera, input, world, terrain = null) {
   const FLOOR_Y = -100
 
   // Capsule-ish player settings
-  const PLAYER_HEIGHT = 1.8
-  const PLAYER_RADIUS = 0.35
-  const EYE_OFFSET = 1.7
+  const PLAYER_HEIGHT = 3.6
+  const PLAYER_RADIUS = 0.7
+  const EYE_OFFSET = 3.4
   const STEP_HEIGHT = 1.0
   const STEP_MAX_FALL_SPEED = 0.1
   const STEP_CAMERA_SMOOTH_SPEED = 14.0

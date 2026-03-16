@@ -25,6 +25,15 @@ export function createInput(canvas) {
     sensitivity: 0.002,
   }
 
+  // Clamp huge one-frame spikes so the camera doesn't randomly whip.
+  const MAX_MOUSE_DELTA = 40
+  const DEBUG_MOUSE_SPIKES = true
+
+  function resetMouseDelta() {
+    mouse.deltaX = 0
+    mouse.deltaY = 0
+  }
+
   // ============================================================
   // ATTACK INPUT
   // ------------------------------------------------------------
@@ -43,6 +52,17 @@ export function createInput(canvas) {
     if (document.pointerLockElement !== canvas) {
       canvas.requestPointerLock()
     }
+  })
+
+  // Reset stored mouse deltas when pointer lock changes so stale
+  // movement does not get applied on the next frame.
+  document.addEventListener('pointerlockchange', () => {
+    resetMouseDelta()
+  })
+
+  // Also clear on blur in case the tab loses focus during mouse movement.
+  window.addEventListener('blur', () => {
+    resetMouseDelta()
   })
 
   // ============================================================
@@ -151,11 +171,26 @@ export function createInput(canvas) {
     },
 
     consumeMouseDelta() {
-      const dx = mouse.deltaX
-      const dy = mouse.deltaY
+      const rawDx = mouse.deltaX
+      const rawDy = mouse.deltaY
 
-      mouse.deltaX = 0
-      mouse.deltaY = 0
+      if (
+        DEBUG_MOUSE_SPIKES &&
+        (Math.abs(rawDx) > MAX_MOUSE_DELTA || Math.abs(rawDy) > MAX_MOUSE_DELTA)
+      ) {
+        console.log('Mouse spike detected', {
+          rawDx,
+          rawDy,
+          clampedDx: Math.max(-MAX_MOUSE_DELTA, Math.min(MAX_MOUSE_DELTA, rawDx)),
+          clampedDy: Math.max(-MAX_MOUSE_DELTA, Math.min(MAX_MOUSE_DELTA, rawDy)),
+          pointerLocked: document.pointerLockElement === canvas,
+        })
+      }
+
+      const dx = Math.max(-MAX_MOUSE_DELTA, Math.min(MAX_MOUSE_DELTA, rawDx))
+      const dy = Math.max(-MAX_MOUSE_DELTA, Math.min(MAX_MOUSE_DELTA, rawDy))
+
+      resetMouseDelta()
 
       return { dx, dy }
     },
