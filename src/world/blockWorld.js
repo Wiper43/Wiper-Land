@@ -1,7 +1,14 @@
 import * as THREE from 'three'
 
-import { BLOCK, doesBlockRegenerate, getBlockRegenDelay, isDestructibleBlockId, isSolidBlockId } from './blocks.js'
 import {
+  BLOCK,
+  doesBlockRegenerate,
+  getBlockRegenDelay,
+  isDestructibleBlockId,
+  isSolidBlockId,
+} from './blocks.js'
+import {
+  CHUNK_SIZE,
   blockToChunk,
   blockToLocal,
   getChunkKey,
@@ -24,42 +31,7 @@ import { generateBlock } from './terrain.js'
 import { buildChunkMesh, createWorldBlockMaterial } from './mesher.js'
 
 export class BlockWorld {
-  // Converts world coordinates to chunk + local block coordinates
-worldToChunk(x, y, z) {
-
-  const CHUNK_SIZE = this.chunkSize || 16;
-
-  const cx = Math.floor(x / CHUNK_SIZE);
-  const cy = Math.floor(y / CHUNK_SIZE);
-  const cz = Math.floor(z / CHUNK_SIZE);
-
-  const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-  const ly = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-  const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-
-  return { cx, cy, cz, lx, ly, lz };
-}
-// Returns the block ID at world coordinates
-getBlock(x, y, z) {
-  // Returns true if the block at world coordinates is solid
-
-
-  const { cx, cy, cz, lx, ly, lz } = this.worldToChunk(x, y, z);
-
-  const chunk = this.getChunk(cx, cy, cz);
-
-  // If chunk doesn't exist yet, treat as air
-  if (!chunk) return 0;
-
-  // Access block inside chunk
-  return chunk.blocks[lx][ly][lz];
-}
-// Returns true if the block at world coordinates is solid
-isSolid(x, y, z) {
-  return this.getBlock(x, y, z) !== 0;
-}
   constructor(scene) {
-    
     this.scene = scene
 
     this.group = new THREE.Group()
@@ -69,84 +41,28 @@ isSolid(x, y, z) {
     this.chunks = new Map()
     this.material = createWorldBlockMaterial()
 
+    this.chunkSize = CHUNK_SIZE
     this.loadedRadius = 2
+
+    // Regen tuning
     this.regenRetryDelay = 1.0
+    this.regenRetryJitter = 0.5
+    this.regenSpawnJitter = 1.25
+    this.maxRegensPerFrame = 8
+    this.regenPlayerBlockRadius = 10
+
+    // Mesh rebuild tuning
     this.maxChunkRebuildsPerFrame = 2
 
     this.navDirty = false
     this.navRebuildCooldown = 0
   }
-  // Sets the block ID at world coordinates
-setBlock(x, y, z, type) {
-  const { cx, cy, cz, lx, ly, lz } = this.worldToChunk(x, y, z);
 
-  const chunk = this.getChunk(cx, cy, cz);
-  if (!chunk) return false;
-
-  chunk.blocks[lx][ly][lz] = type;
-
-  return true;
-}
-
-  update(deltaTime, player) {
-    this.updateLoadedChunksAroundPlayer(player)
-    this.updateRegeneration(deltaTime, player)
-    this.rebuildDirtyChunks()
-  }
-
-  updateLoadedChunksAroundPlayer(player) {
-    
-
-    if (!player?.position) return
-
-    const centerCx = Math.floor(player.position.x / 16)
-    const centerCy = 0
-    const centerCz = Math.floor(player.position.z / 16)
-   const ARENA_LIMIT = 20
-    for (let cz = centerCz - this.loadedRadius; cz <= centerCz + this.loadedRadius; cz++) {
-      for (let cy = centerCy - 1; cy <= centerCy + 1; cy++) {
-        for (let cx = centerCx - this.loadedRadius; cx <= centerCx + this.loadedRadius; cx++) {
-          const worldX = cx * 16
-      const worldZ = cz * 16
-
-      if (
-        worldX < -ARENA_LIMIT ||
-        worldX > ARENA_LIMIT ||
-        worldZ < -ARENA_LIMIT ||
-        worldZ > ARENA_LIMIT
-      ) {
-        continue
-      }
-          
-            this.ensureChunk(cx, cy, cz)
-        }
-      }
-    }
-  }
-
-  ensureChunk(cx, cy, cz) {
-    
-    const key = getChunkKey(cx, cy, cz)
-
-    
-    let chunk = this.chunks.get(key)
-
-    if (chunk) return chunk
-
-    chunk = createChunk(cx, cy, cz)
-    fillChunkFromGenerator(chunk, generateBlock)
-    this.chunks.set(key, chunk)
-
-    return chunk
-  }
-
-  getChunk(cx, cy, cz) {
-    return this.chunks.get(getChunkKey(cx, cy, cz)) ?? null
-  }
-
-  getChunkAtBlock(bx, by, bz) {
-    const { cx, cy, cz } = blockToChunk(bx, by, bz)
-    return this.getChunk(cx, cy, cz)
+  // Converts world coordinates to chunk + local block coordinates.
+  worldToChunk(x, y, z) {
+    const { cx, cy, cz } = blockToChunk(Math.floor(x), Math.floor(y), Math.floor(z))
+    const { lx, ly, lz } = blockToLocal(Math.floor(x), Math.floor(y), Math.floor(z))
+    return { cx, cy, cz, lx, ly, lz }
   }
 
   getBlockId(bx, by, bz) {
@@ -170,8 +86,80 @@ setBlock(x, y, z, type) {
     }
   }
 
+  isSolid(x, y, z) {
+    return isSolidBlockId(this.getBlockId(x, y, z))
+  }
+
   isSolidBlock(bx, by, bz) {
     return isSolidBlockId(this.getBlockId(bx, by, bz))
+  }
+
+  setBlock(x, y, z, type) {
+    const { cx, cy, cz, lx, ly, lz } = this.worldToChunk(x, y, z)
+    const chunk = this.getChunk(cx, cy, cz)
+    if (!chunk) return false
+
+    const changed = setChunkBlock(chunk, lx, ly, lz, type)
+    if (!changed) return false
+
+    this.markChunkAndNeighborsDirty(Math.floor(x), Math.floor(y), Math.floor(z))
+    return true
+  }
+
+  update(deltaTime, player) {
+    this.updateLoadedChunksAroundPlayer(player)
+    this.updateRegeneration(deltaTime, player)
+    this.rebuildDirtyChunks()
+  }
+
+  updateLoadedChunksAroundPlayer(player) {
+    if (!player?.position) return
+
+    const centerCx = Math.floor(player.position.x / CHUNK_SIZE)
+    const centerCy = 0
+    const centerCz = Math.floor(player.position.z / CHUNK_SIZE)
+    const ARENA_LIMIT = 20
+
+    for (let cz = centerCz - this.loadedRadius; cz <= centerCz + this.loadedRadius; cz++) {
+      for (let cy = centerCy - 1; cy <= centerCy + 1; cy++) {
+        for (let cx = centerCx - this.loadedRadius; cx <= centerCx + this.loadedRadius; cx++) {
+          const worldX = cx * CHUNK_SIZE
+          const worldZ = cz * CHUNK_SIZE
+
+          if (
+            worldX < -ARENA_LIMIT ||
+            worldX > ARENA_LIMIT ||
+            worldZ < -ARENA_LIMIT ||
+            worldZ > ARENA_LIMIT
+          ) {
+            continue
+          }
+
+          this.ensureChunk(cx, cy, cz)
+        }
+      }
+    }
+  }
+
+  ensureChunk(cx, cy, cz) {
+    const key = getChunkKey(cx, cy, cz)
+    let chunk = this.chunks.get(key)
+
+    if (chunk) return chunk
+
+    chunk = createChunk(cx, cy, cz)
+    fillChunkFromGenerator(chunk, generateBlock)
+    this.chunks.set(key, chunk)
+    return chunk
+  }
+
+  getChunk(cx, cy, cz) {
+    return this.chunks.get(getChunkKey(cx, cy, cz)) ?? null
+  }
+
+  getChunkAtBlock(bx, by, bz) {
+    const { cx, cy, cz } = blockToChunk(bx, by, bz)
+    return this.getChunk(cx, cy, cz)
   }
 
   breakBlock(bx, by, bz) {
@@ -192,11 +180,16 @@ setBlock(x, y, z, type) {
     this.markNavDirty()
 
     if (doesBlockRegenerate(blockId)) {
+      const restoreAt =
+        performance.now() * 0.001 +
+        getBlockRegenDelay(blockId) +
+        Math.random() * this.regenSpawnJitter
+
       queueChunkRegen(chunk, {
         bx,
         by,
         bz,
-        restoreAt: performance.now() * 0.001 + getBlockRegenDelay(blockId),
+        restoreAt,
       })
     }
 
@@ -222,21 +215,38 @@ setBlock(x, y, z, type) {
 
   updateRegeneration(_deltaTime, player) {
     const now = performance.now() * 0.001
+    let restoredThisFrame = 0
 
     for (const chunk of this.chunks.values()) {
+      if (restoredThisFrame >= this.maxRegensPerFrame) break
+
       for (let i = chunk.regenQueue.length - 1; i >= 0; i--) {
+        if (restoredThisFrame >= this.maxRegensPerFrame) break
+
         const record = chunk.regenQueue[i]
         if (now < record.restoreAt) continue
 
         if (
-  this.isBlockOccupied(record.bx, record.by, record.bz, player) ||
-  this.isPlayerNearBlock(record.bx, record.by, record.bz, player, 10)
-) {
-  record.restoreAt = now + this.regenRetryDelay
-  continue
-}
+          this.isBlockOccupied(record.bx, record.by, record.bz, player) ||
+          this.isPlayerNearBlock(
+            record.bx,
+            record.by,
+            record.bz,
+            player,
+            this.regenPlayerBlockRadius,
+          )
+        ) {
+          record.restoreAt =
+            now +
+            this.regenRetryDelay +
+            Math.random() * this.regenRetryJitter
+          continue
+        }
 
-        this.restoreBlock(record.bx, record.by, record.bz)
+        if (this.restoreBlock(record.bx, record.by, record.bz)) {
+          restoredThisFrame++
+        }
+
         removeChunkRegenAt(chunk, i)
       }
     }
@@ -268,19 +278,20 @@ setBlock(x, y, z, type) {
       pMinZ < maxZ && pMaxZ > minZ
     )
   }
-isPlayerNearBlock(bx, by, bz, player, radius = 10) {
-  if (!player?.position) return false
 
-  const centerX = bx + 0.5
-  const centerY = by + 0.5
-  const centerZ = bz + 0.5
+  isPlayerNearBlock(bx, by, bz, player, radius = 10) {
+    if (!player?.position) return false
 
-  const dx = player.position.x - centerX
-  const dy = player.position.y - centerY
-  const dz = player.position.z - centerZ
+    const centerX = bx + 0.5
+    const centerY = by + 0.5
+    const centerZ = bz + 0.5
 
-  return (dx * dx + dy * dy + dz * dz) <= (radius * radius)
-}
+    const dx = player.position.x - centerX
+    const dy = player.position.y - centerY
+    const dz = player.position.z - centerZ
+
+    return (dx * dx + dy * dy + dz * dz) <= radius * radius
+  }
 
   markChunkDirty(cx, cy, cz) {
     const chunk = this.getChunk(cx, cy, cz)
@@ -305,32 +316,29 @@ isPlayerNearBlock(bx, by, bz, player, radius = 10) {
       const { cx, cy, cz } = blockToChunk(bx + ox, by + oy, bz + oz)
       const key = getChunkKey(cx, cy, cz)
       if (touched.has(key)) continue
+
       touched.add(key)
       this.markChunkDirty(cx, cy, cz)
     }
   }
 
   rebuildDirtyChunks() {
-  let rebuiltCount = 0
+    let rebuiltCount = 0
 
-  for (const chunk of this.chunks.values()) {
-    if (!isChunkDirty(chunk)) continue
-    /*
-    if (rebuiltCount > 0) {
-  console.log('Chunk rebuilds this frame:', rebuiltCount)
-} */
-    if (rebuiltCount >= this.maxChunkRebuildsPerFrame) break
+    for (const chunk of this.chunks.values()) {
+      if (!isChunkDirty(chunk)) continue
+      if (rebuiltCount >= this.maxChunkRebuildsPerFrame) break
 
-    disposeChunkMesh(chunk)
+      disposeChunkMesh(chunk)
 
-    const mesh = buildChunkMesh(chunk, this, this.material)
-    setChunkMesh(chunk, mesh)
-    this.group.add(mesh)
+      const mesh = buildChunkMesh(chunk, this, this.material)
+      setChunkMesh(chunk, mesh)
+      this.group.add(mesh)
 
-    clearChunkDirty(chunk)
-    rebuiltCount++
+      clearChunkDirty(chunk)
+      rebuiltCount++
+    }
   }
-}
 
   markNavDirty() {
     this.navDirty = true
@@ -350,74 +358,73 @@ isPlayerNearBlock(bx, by, bz, player, radius = 10) {
 
     this.material?.dispose?.()
   }
+
   traceRayAllHits(origin, dir, maxDist = 6) {
-  const hits = [];
+    const hits = []
 
-  let x = Math.floor(origin.x);
-  let y = Math.floor(origin.y);
-  let z = Math.floor(origin.z);
+    let x = Math.floor(origin.x)
+    let y = Math.floor(origin.y)
+    let z = Math.floor(origin.z)
 
-  const stepX = Math.sign(dir.x);
-  const stepY = Math.sign(dir.y);
-  const stepZ = Math.sign(dir.z);
+    const stepX = Math.sign(dir.x)
+    const stepY = Math.sign(dir.y)
+    const stepZ = Math.sign(dir.z)
 
-  const tDeltaX = Math.abs(1 / (dir.x || 0.00001));
-  const tDeltaY = Math.abs(1 / (dir.y || 0.00001));
-  const tDeltaZ = Math.abs(1 / (dir.z || 0.00001));
+    const tDeltaX = Math.abs(1 / (dir.x || 0.00001))
+    const tDeltaY = Math.abs(1 / (dir.y || 0.00001))
+    const tDeltaZ = Math.abs(1 / (dir.z || 0.00001))
 
-  const frac0 = (v) => v - Math.floor(v);
-  const frac1 = (v) => 1 - frac0(v);
+    const frac0 = (v) => v - Math.floor(v)
+    const frac1 = (v) => 1 - frac0(v)
 
-  let tMaxX = stepX > 0 ? frac1(origin.x) * tDeltaX : frac0(origin.x) * tDeltaX;
-  let tMaxY = stepY > 0 ? frac1(origin.y) * tDeltaY : frac0(origin.y) * tDeltaY;
-  let tMaxZ = stepZ > 0 ? frac1(origin.z) * tDeltaZ : frac0(origin.z) * tDeltaZ;
+    let tMaxX = stepX > 0 ? frac1(origin.x) * tDeltaX : frac0(origin.x) * tDeltaX
+    let tMaxY = stepY > 0 ? frac1(origin.y) * tDeltaY : frac0(origin.y) * tDeltaY
+    let tMaxZ = stepZ > 0 ? frac1(origin.z) * tDeltaZ : frac0(origin.z) * tDeltaZ
 
-  if (dir.x === 0) tMaxX = Infinity;
-  if (dir.y === 0) tMaxY = Infinity;
-  if (dir.z === 0) tMaxZ = Infinity;
+    if (dir.x === 0) tMaxX = Infinity
+    if (dir.y === 0) tMaxY = Infinity
+    if (dir.z === 0) tMaxZ = Infinity
 
-  let dist = 0;
-  const seen = new Set();
+    let dist = 0
+    const seen = new Set()
 
-  while (dist <= maxDist) {
-    if (this.isSolidBlock(x, y, z)) {
-      const key = `${x},${y},${z}`;
+    while (dist <= maxDist) {
+      if (this.isSolidBlock(x, y, z)) {
+        const key = `${x},${y},${z}`
 
-      if (!seen.has(key)) {
-        seen.add(key);
-        hits.push({
-          bx: x,
-          by: y,
-          bz: z,
-          blockId: this.getBlockId(x, y, z),
-          distance: dist
-        });
+        if (!seen.has(key)) {
+          seen.add(key)
+          hits.push({
+            bx: x,
+            by: y,
+            bz: z,
+            blockId: this.getBlockId(x, y, z),
+            distance: dist,
+          })
+        }
+      }
+
+      if (tMaxX < tMaxY) {
+        if (tMaxX < tMaxZ) {
+          x += stepX
+          dist = tMaxX
+          tMaxX += tDeltaX
+        } else {
+          z += stepZ
+          dist = tMaxZ
+          tMaxZ += tDeltaZ
+        }
+      } else if (tMaxY < tMaxZ) {
+        y += stepY
+        dist = tMaxY
+        tMaxY += tDeltaY
+      } else {
+        z += stepZ
+        dist = tMaxZ
+        tMaxZ += tDeltaZ
       }
     }
 
-    if (tMaxX < tMaxY) {
-      if (tMaxX < tMaxZ) {
-        x += stepX;
-        dist = tMaxX;
-        tMaxX += tDeltaX;
-      } else {
-        z += stepZ;
-        dist = tMaxZ;
-        tMaxZ += tDeltaZ;
-      }
-    } else {
-      if (tMaxY < tMaxZ) {
-        y += stepY;
-        dist = tMaxY;
-        tMaxY += tDeltaY;
-      } else {
-        z += stepZ;
-        dist = tMaxZ;
-        tMaxZ += tDeltaZ;
-      }
-    }
+    return hits
   }
-
-  return hits;
-}
 }

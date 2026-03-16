@@ -118,14 +118,8 @@ export function disposeChunkMesh(chunk) {
     chunk.mesh.geometry.dispose()
   }
 
-  if (Array.isArray(chunk.mesh.material)) {
-    for (const material of chunk.mesh.material) {
-      material.dispose?.()
-    }
-  } else {
-    chunk.mesh.material?.dispose?.()
-  }
-
+  // Important: the world material is shared across many chunk meshes,
+  // so it must NOT be disposed here.
   chunk.mesh = null
 }
 
