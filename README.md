@@ -7,21 +7,7 @@ Wiper Land
 
 Browser-based 3D arena sandbox.
 
-Phase 1 — Movement Sandbox
 
-Features:
-
-WASD movement
-
-Mouse look
-
-Jump
-
-Gravity
-
-Collision with floor
-
-Simple test arena
 
 Testing GitHub connection.
 
@@ -61,3 +47,15 @@ git push -u origin phase2-destructible-blocks
 After this, future pushes are just:
 
 git push
+
+//RUN GAME COMMAND
+ npm dev run
+
+ 
+///////////////////////////////////////////////////////
+This resets everything to a clean repo state.
+
+git reset --hard
+git clean -fd
+
+Basically restores the repo exactly to the commit.
