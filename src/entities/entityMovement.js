@@ -128,6 +128,87 @@ export function canMoveToVoxel(blockWorld, position, halfX, halfZ, heightBlocks 
   return true
 }
 
+export function tryStepMoveOnVoxelGrid(
+  entity,
+  blockWorld,
+  targetPosition,
+  {
+    halfX = 0.4,
+    halfZ = 0.4,
+    heightBlocks = 3,
+    stepHeight = 1.0,
+    maxFallSpeed = 0.1,
+    groundedGraceTime = 0.08,
+  } = {}
+) {
+  if (!entity?.mesh || !blockWorld) {
+    return { moved: false, stepped: false, position: null, stepGroundedGraceTime: 0 }
+  }
+
+  if (canMoveToVoxel(blockWorld, targetPosition, halfX, halfZ, heightBlocks)) {
+    return {
+      moved: true,
+      stepped: false,
+      position: targetPosition,
+      stepGroundedGraceTime: groundedGraceTime,
+    }
+  }
+
+  const groundedGrace = entity.stepGroundedGraceTimer ?? 0
+  const canStep =
+    entity.grounded === true ||
+    entity.groundedAtFrameStart === true ||
+    groundedGrace > 0
+
+  if (!canStep) {
+    return { moved: false, stepped: false, position: null, stepGroundedGraceTime: 0 }
+  }
+
+  if ((entity.velocity?.y ?? 0) < -maxFallSpeed) {
+    return { moved: false, stepped: false, position: null, stepGroundedGraceTime: 0 }
+  }
+
+  const baseFootY = entity.mesh.position.y
+  const minBX = Math.floor(targetPosition.x - halfX + 0.1)
+  const maxBX = Math.floor(targetPosition.x + halfX - 0.1)
+  const minBZ = Math.floor(targetPosition.z - halfZ + 0.1)
+  const maxBZ = Math.floor(targetPosition.z + halfZ - 0.1)
+  const minBY = Math.floor(baseFootY + 0.1)
+  const maxBY = Math.floor(baseFootY + stepHeight + 0.001)
+
+  let bestStepTop = null
+
+  for (let bx = minBX; bx <= maxBX; bx++) {
+    for (let bz = minBZ; bz <= maxBZ; bz++) {
+      for (let by = minBY; by <= maxBY; by++) {
+        if (!blockWorld.isSolidBlock(bx, by, bz)) continue
+
+        const blockTop = by + 1
+        const stepAmount = blockTop - baseFootY
+        if (stepAmount <= 0.001 || stepAmount > stepHeight + 0.05) continue
+
+        const steppedTarget = targetPosition.clone()
+        steppedTarget.y = blockTop
+
+        if (!canMoveToVoxel(blockWorld, steppedTarget, halfX, halfZ, heightBlocks)) continue
+
+        if (bestStepTop == null || blockTop < bestStepTop) {
+          bestStepTop = blockTop
+        }
+      }
+    }
+  }
+
+  if (bestStepTop == null) {
+    return { moved: false, stepped: false, position: null, stepGroundedGraceTime: 0 }
+  }
+
+  const steppedPosition = targetPosition.clone()
+  steppedPosition.y = bestStepTop
+
+  return { moved: true, stepped: true, position: steppedPosition, stepGroundedGraceTime: groundedGraceTime }
+}
+
 /**
  * Push overlapping entities apart based on horizontal distance.
  * Call once per frame after all entity updates.

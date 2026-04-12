@@ -1,4 +1,10 @@
+import { getSurfaceHeightExact } from './world/terrain.js'
+import { getActiveWorldPreset } from './world/worldPresets.js'
+
 export function createUI() {
+  const MAP_WORLD_SIZE = getActiveWorldPreset().worldSize ?? 384
+  const MAP_HALF_SIZE = MAP_WORLD_SIZE / 2
+
   // ============================================================
   // ROOT UI LAYER
   // ------------------------------------------------------------
@@ -52,6 +58,44 @@ export function createUI() {
   hint.style.textShadow = '0 0 4px rgba(0,0,0,0.9)'
   hint.textContent = ''
   root.appendChild(hint)
+
+  const fireBombMeter = document.createElement('div')
+  fireBombMeter.style.position = 'absolute'
+  fireBombMeter.style.left = '50%'
+  fireBombMeter.style.bottom = '52px'
+  fireBombMeter.style.transform = 'translateX(-50%)'
+  fireBombMeter.style.width = '220px'
+  fireBombMeter.style.padding = '8px 10px'
+  fireBombMeter.style.borderRadius = '12px'
+  fireBombMeter.style.background = 'rgba(0,0,0,0.62)'
+  fireBombMeter.style.border = '1px solid rgba(255,255,255,0.18)'
+  fireBombMeter.style.opacity = '0'
+  fireBombMeter.style.transition = 'opacity 120ms ease'
+  root.appendChild(fireBombMeter)
+
+  const fireBombLabel = document.createElement('div')
+  fireBombLabel.style.color = 'white'
+  fireBombLabel.style.fontFamily = 'sans-serif'
+  fireBombLabel.style.fontSize = '12px'
+  fireBombLabel.style.marginBottom = '6px'
+  fireBombLabel.textContent = 'Fire Bomb Charging'
+  fireBombMeter.appendChild(fireBombLabel)
+
+  const fireBombBar = document.createElement('div')
+  fireBombBar.style.height = '10px'
+  fireBombBar.style.borderRadius = '999px'
+  fireBombBar.style.background = 'rgba(255,255,255,0.12)'
+  fireBombBar.style.overflow = 'hidden'
+  fireBombMeter.appendChild(fireBombBar)
+
+  const fireBombFill = document.createElement('div')
+  fireBombFill.style.width = '0%'
+  fireBombFill.style.height = '100%'
+  fireBombFill.style.borderRadius = '999px'
+  fireBombFill.style.background = 'linear-gradient(90deg, #ff8b3d, #ffd36b)'
+  fireBombFill.style.boxShadow = '0 0 14px rgba(255,140,60,0.4)'
+  fireBombFill.style.transition = 'width 40ms linear, background 120ms ease'
+  fireBombBar.appendChild(fireBombFill)
 
   // ============================================================
   // LEFT CLICK DIRECT ATTACK SLASH
@@ -305,8 +349,207 @@ root.appendChild(spellbookHolder)
   attackList.style.gap = '8px'
   spellbookPanel.appendChild(attackList)
 
+  // ============================================================
+  // WORLD MAP
+  // ------------------------------------------------------------
+  // Toggle with M. Shows the 384x384 world with a player marker.
+  // ============================================================
+  const mapOverlay = document.createElement('div')
+  mapOverlay.style.position = 'absolute'
+  mapOverlay.style.left = '50%'
+  mapOverlay.style.top = '50%'
+  mapOverlay.style.transform = 'translate(-50%, -50%)'
+  mapOverlay.style.width = 'min(78vw, 720px)'
+  mapOverlay.style.height = 'min(78vw, 720px)'
+  mapOverlay.style.maxHeight = '78vh'
+  mapOverlay.style.display = 'none'
+  mapOverlay.style.pointerEvents = 'none'
+  mapOverlay.style.border = '3px solid rgba(255,255,255,0.26)'
+  mapOverlay.style.borderRadius = '16px'
+  mapOverlay.style.background = 'rgba(246,241,230,0.96)'
+  mapOverlay.style.boxShadow = '0 20px 60px rgba(0,0,0,0.52)'
+  mapOverlay.style.backdropFilter = 'blur(4px)'
+  root.appendChild(mapOverlay)
+
+  const mapTitle = document.createElement('div')
+  mapTitle.textContent = 'World Map'
+  mapTitle.style.position = 'absolute'
+  mapTitle.style.left = '24px'
+  mapTitle.style.top = '18px'
+  mapTitle.style.fontFamily = 'sans-serif'
+  mapTitle.style.fontSize = '24px'
+  mapTitle.style.fontWeight = '800'
+  mapTitle.style.letterSpacing = '0.5px'
+  mapTitle.style.color = '#3d2c1e'
+  mapOverlay.appendChild(mapTitle)
+
+  const mapSubtitle = document.createElement('div')
+  mapSubtitle.textContent = `${MAP_WORLD_SIZE} x ${MAP_WORLD_SIZE}`
+  mapSubtitle.style.position = 'absolute'
+  mapSubtitle.style.left = '24px'
+  mapSubtitle.style.top = '50px'
+  mapSubtitle.style.fontFamily = 'sans-serif'
+  mapSubtitle.style.fontSize = '13px'
+  mapSubtitle.style.opacity = '1'
+  mapSubtitle.style.color = '#6a5743'
+  mapOverlay.appendChild(mapSubtitle)
+
+  const mapFrame = document.createElement('div')
+  mapFrame.style.position = 'absolute'
+  mapFrame.style.left = '64px'
+  mapFrame.style.right = '34px'
+  mapFrame.style.top = '86px'
+  mapFrame.style.bottom = '58px'
+  mapFrame.style.border = '2px solid rgba(92, 72, 51, 0.42)'
+  mapFrame.style.borderRadius = '10px'
+  mapFrame.style.background = 'linear-gradient(180deg, rgba(245,240,228,0.98), rgba(224,217,201,0.98))'
+  mapFrame.style.overflow = 'hidden'
+  mapOverlay.appendChild(mapFrame)
+
+  const mapCanvas = document.createElement('canvas')
+  mapCanvas.width = MAP_WORLD_SIZE
+  mapCanvas.height = MAP_WORLD_SIZE
+  mapCanvas.style.position = 'absolute'
+  mapCanvas.style.inset = '0'
+  mapCanvas.style.width = '100%'
+  mapCanvas.style.height = '100%'
+  mapCanvas.style.opacity = '0.96'
+  mapCanvas.style.imageRendering = 'auto'
+  mapFrame.appendChild(mapCanvas)
+
+  const mapAxisX = document.createElement('div')
+  mapAxisX.textContent = 'X'
+  mapAxisX.style.position = 'absolute'
+  mapAxisX.style.left = '50%'
+  mapAxisX.style.bottom = '18px'
+  mapAxisX.style.transform = 'translateX(-50%)'
+  mapAxisX.style.fontFamily = 'sans-serif'
+  mapAxisX.style.fontSize = '14px'
+  mapAxisX.style.fontWeight = '700'
+  mapAxisX.style.opacity = '1'
+  mapAxisX.style.color = '#4b3726'
+  mapOverlay.appendChild(mapAxisX)
+
+  const mapAxisY = document.createElement('div')
+  mapAxisY.textContent = 'Y'
+  mapAxisY.style.position = 'absolute'
+  mapAxisY.style.left = '20px'
+  mapAxisY.style.top = '50%'
+  mapAxisY.style.transform = 'translateY(-50%)'
+  mapAxisY.style.fontFamily = 'sans-serif'
+  mapAxisY.style.fontSize = '14px'
+  mapAxisY.style.fontWeight = '700'
+  mapAxisY.style.opacity = '1'
+  mapAxisY.style.color = '#4b3726'
+  mapOverlay.appendChild(mapAxisY)
+
+  const axisTicks = [
+    { value: 192, left: '0%', top: '0%' },
+    { value: 96, left: '25%', top: '25%' },
+    { value: 0, left: '50%', top: '50%' },
+    { value: -96, left: '75%', top: '75%' },
+    { value: -192, left: '100%', top: '100%' },
+  ]
+
+  for (const tick of axisTicks) {
+    const xLabel = document.createElement('div')
+    xLabel.textContent = String(tick.value)
+    xLabel.style.position = 'absolute'
+    xLabel.style.left = tick.left
+    xLabel.style.bottom = '-28px'
+    xLabel.style.transform = 'translateX(-50%)'
+    xLabel.style.fontFamily = 'monospace'
+    xLabel.style.fontSize = '12px'
+    xLabel.style.opacity = '1'
+    xLabel.style.color = '#654e38'
+    xLabel.style.textShadow = '0 1px 0 rgba(255,255,255,0.65)'
+    mapFrame.appendChild(xLabel)
+
+    const yLabel = document.createElement('div')
+    yLabel.textContent = String(tick.value)
+    yLabel.style.position = 'absolute'
+    yLabel.style.left = '-40px'
+    yLabel.style.top = tick.top
+    yLabel.style.transform = 'translateY(-50%)'
+    yLabel.style.fontFamily = 'monospace'
+    yLabel.style.fontSize = '12px'
+    yLabel.style.opacity = '1'
+    yLabel.style.color = '#654e38'
+    yLabel.style.textShadow = '0 1px 0 rgba(255,255,255,0.65)'
+    mapFrame.appendChild(yLabel)
+  }
+
+  const mapCrossVertical = document.createElement('div')
+  mapCrossVertical.style.position = 'absolute'
+  mapCrossVertical.style.left = '50%'
+  mapCrossVertical.style.top = '0'
+  mapCrossVertical.style.bottom = '0'
+  mapCrossVertical.style.width = '1px'
+  mapCrossVertical.style.background = 'rgba(82, 64, 46, 0.18)'
+  mapFrame.appendChild(mapCrossVertical)
+
+  const mapCrossHorizontal = document.createElement('div')
+  mapCrossHorizontal.style.position = 'absolute'
+  mapCrossHorizontal.style.top = '50%'
+  mapCrossHorizontal.style.left = '0'
+  mapCrossHorizontal.style.right = '0'
+  mapCrossHorizontal.style.height = '1px'
+  mapCrossHorizontal.style.background = 'rgba(82, 64, 46, 0.18)'
+  mapFrame.appendChild(mapCrossHorizontal)
+
+  const playerMarker = document.createElement('div')
+  playerMarker.style.position = 'absolute'
+  playerMarker.style.left = '50%'
+  playerMarker.style.top = '50%'
+  playerMarker.style.transform = 'translate(-50%, -50%) rotate(0deg)'
+  playerMarker.style.transformOrigin = '50% 50%'
+  playerMarker.style.width = '54px'
+  playerMarker.style.height = '30px'
+  playerMarker.style.filter = 'drop-shadow(0 0 10px rgba(255,40,40,0.48))'
+  playerMarker.style.pointerEvents = 'none'
+
+  const playerMarkerTail = document.createElement('div')
+  playerMarkerTail.style.position = 'absolute'
+  playerMarkerTail.style.left = '0'
+  playerMarkerTail.style.top = '50%'
+  playerMarkerTail.style.width = '30px'
+  playerMarkerTail.style.height = '12px'
+  playerMarkerTail.style.transform = 'translateY(-50%)'
+  playerMarkerTail.style.background = '#ff3131'
+  playerMarkerTail.style.borderRadius = '2px 0 0 2px'
+  playerMarker.appendChild(playerMarkerTail)
+
+  const playerMarkerHead = document.createElement('div')
+  playerMarkerHead.style.position = 'absolute'
+  playerMarkerHead.style.right = '0'
+  playerMarkerHead.style.top = '50%'
+  playerMarkerHead.style.width = '0'
+  playerMarkerHead.style.height = '0'
+  playerMarkerHead.style.transform = 'translateY(-50%)'
+  playerMarkerHead.style.borderTop = '15px solid transparent'
+  playerMarkerHead.style.borderBottom = '15px solid transparent'
+  playerMarkerHead.style.borderLeft = '24px solid #ff3131'
+  playerMarker.appendChild(playerMarkerHead)
+
+  mapFrame.appendChild(playerMarker)
+
+  const mapCoords = document.createElement('div')
+  mapCoords.style.position = 'absolute'
+  mapCoords.style.right = '24px'
+  mapCoords.style.top = '22px'
+  mapCoords.style.fontFamily = 'monospace'
+  mapCoords.style.fontSize = '14px'
+  mapCoords.style.opacity = '1'
+  mapCoords.style.textAlign = 'right'
+  mapCoords.style.color = '#4b3726'
+  mapCoords.style.textShadow = '0 1px 0 rgba(255,255,255,0.68)'
+  mapOverlay.appendChild(mapCoords)
+
   let optionsOpen = false
   let spellbookOpen = false
+  let mapOpen = false
+
+  drawTopographicMap(mapCanvas, MAP_WORLD_SIZE, MAP_HALF_SIZE)
 
   optionsButton.addEventListener('click', () => {
     optionsOpen = !optionsOpen
@@ -316,6 +559,14 @@ root.appendChild(spellbookHolder)
   spellbookButton.addEventListener('click', () => {
     spellbookOpen = !spellbookOpen
     spellbookPanel.style.display = spellbookOpen ? 'block' : 'none'
+  })
+
+  window.addEventListener('keydown', (event) => {
+    if (event.repeat) return
+    if (event.code !== 'KeyM') return
+
+    mapOpen = !mapOpen
+    mapOverlay.style.display = mapOpen ? 'block' : 'none'
   })
 
   // ============================================================
@@ -489,6 +740,35 @@ root.appendChild(spellbookHolder)
     }
   }
 
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value))
+  }
+
+  function updateMapPlayerPosition(position, direction = null) {
+    if (!position) return
+
+    const normalizedX = clamp((position.x + MAP_HALF_SIZE) / MAP_WORLD_SIZE, 0, 1)
+    const normalizedY = clamp((position.z + MAP_HALF_SIZE) / MAP_WORLD_SIZE, 0, 1)
+
+    playerMarker.style.left = `${normalizedX * 100}%`
+    playerMarker.style.top = `${normalizedY * 100}%`
+    if (direction) {
+      const angleDeg = Math.atan2(direction.z, direction.x) * (180 / Math.PI)
+      playerMarker.style.transform = `translate(-50%, -50%) rotate(${angleDeg}deg)`
+    }
+    mapCoords.textContent = `X: ${position.x.toFixed(1)}\nY: ${(-position.z).toFixed(1)}\nZ: ${position.y.toFixed(1)}`
+    mapCoords.style.whiteSpace = 'pre-line'
+  }
+
+  function setFireBombCharge(active, progress = 0, charged = false) {
+    fireBombMeter.style.opacity = active ? '1' : '0'
+    fireBombFill.style.width = `${Math.max(0, Math.min(1, progress)) * 100}%`
+    fireBombFill.style.background = charged
+      ? 'linear-gradient(90deg, #ffd36b, #fff4b2)'
+      : 'linear-gradient(90deg, #ff8b3d, #ffd36b)'
+    fireBombLabel.textContent = charged ? 'Fire Bomb Charged' : 'Fire Bomb Charging'
+  }
+
   return {
     root,
     crosshair,
@@ -507,6 +787,8 @@ root.appendChild(spellbookHolder)
     playSpellbookCast,
 
     setCowVolume,
+    setFireBombCharge,
+    updateMapPlayerPosition,
 
     onCowVolumeChange(callback) {
       cowVolumeSlider.addEventListener('input', () => {
@@ -545,4 +827,187 @@ function stylePanel(panel) {
   panel.style.color = 'white'
   panel.style.fontFamily = 'sans-serif'
   panel.style.boxShadow = '0 8px 18px rgba(0,0,0,0.35)'
+}
+
+function drawTopographicMap(canvas, worldSize, worldHalfSize) {
+  const context = canvas.getContext('2d')
+  if (!context) return
+
+  const heights = []
+  let minHeight = Infinity
+  let maxHeight = -Infinity
+
+  for (let y = 0; y < worldSize; y++) {
+    const row = []
+    const bz = y - worldHalfSize
+
+    for (let x = 0; x < worldSize; x++) {
+      const bx = x - worldHalfSize
+      const height = getSurfaceHeightExact(bx, bz)
+      row.push(height)
+      minHeight = Math.min(minHeight, height)
+      maxHeight = Math.max(maxHeight, height)
+    }
+
+    heights.push(row)
+  }
+
+  const image = context.createImageData(worldSize, worldSize)
+
+  for (let y = 0; y < worldSize; y++) {
+    for (let x = 0; x < worldSize; x++) {
+      const height = heights[y][x]
+      const normalized = (height - minHeight) / Math.max(1, maxHeight - minHeight)
+
+      let red = 245
+      let green = 240
+      let blue = 230
+
+      if (normalized < 0.16) {
+        red = 184
+        green = 215
+        blue = 221
+      } else if (normalized < 0.3) {
+        red = 213
+        green = 227
+        blue = 194
+      } else if (normalized < 0.58) {
+        red = 232
+        green = 226
+        blue = 210
+      } else {
+        red = 222 - normalized * 32
+        green = 214 - normalized * 36
+        blue = 206 - normalized * 38
+      }
+
+      const left = x > 0 ? heights[y][x - 1] : height
+      const right = x < worldSize - 1 ? heights[y][x + 1] : height
+      const up = y > 0 ? heights[y - 1][x] : height
+      const down = y < worldSize - 1 ? heights[y + 1][x] : height
+      const slope = Math.abs(right - left) + Math.abs(down - up)
+
+      const shade = slope * 8
+      red = Math.max(0, red - shade)
+      green = Math.max(0, green - shade)
+      blue = Math.max(0, blue - shade)
+
+      const index = (y * worldSize + x) * 4
+      image.data[index] = red
+      image.data[index + 1] = green
+      image.data[index + 2] = blue
+      image.data[index + 3] = 255
+    }
+  }
+
+  context.putImageData(image, 0, 0)
+
+  drawContourSet(context, heights, worldSize, minHeight, maxHeight, 0.8, 'rgba(118, 91, 70, 0.55)', 0.75)
+  drawContourSet(context, heights, worldSize, minHeight, maxHeight, 3.2, 'rgba(92, 68, 50, 0.78)', 1.25)
+  drawContourLabels(context, heights, worldSize, minHeight, maxHeight, 6.4)
+
+  context.save()
+  context.strokeStyle = 'rgba(120, 98, 78, 0.35)'
+  context.lineWidth = 0.6
+  const gridStep = worldSize / 4
+  for (let offset = gridStep; offset < worldSize; offset += gridStep) {
+    context.beginPath()
+    context.moveTo(offset + 0.5, 0)
+    context.lineTo(offset + 0.5, worldSize)
+    context.stroke()
+
+    context.beginPath()
+    context.moveTo(0, offset + 0.5)
+    context.lineTo(worldSize, offset + 0.5)
+    context.stroke()
+  }
+  context.restore()
+}
+
+function drawContourSet(context, heights, size, minHeight, maxHeight, step, strokeStyle, lineWidth) {
+  context.save()
+  context.strokeStyle = strokeStyle
+  context.lineWidth = lineWidth
+  context.lineJoin = 'round'
+  context.lineCap = 'round'
+
+  const startLevel = Math.ceil(minHeight / step) * step
+  for (let level = startLevel; level <= maxHeight; level += step) {
+    for (let y = 0; y < size - 1; y++) {
+      for (let x = 0; x < size - 1; x++) {
+        traceContourCell(context, heights, x, y, level)
+      }
+    }
+  }
+
+  context.restore()
+}
+
+function traceContourCell(context, heights, x, y, level) {
+  const tl = heights[y][x]
+  const tr = heights[y][x + 1]
+  const br = heights[y + 1][x + 1]
+  const bl = heights[y + 1][x]
+
+  const points = []
+
+  addContourPoint(points, level, tl, tr, x, y, x + 1, y)
+  addContourPoint(points, level, tr, br, x + 1, y, x + 1, y + 1)
+  addContourPoint(points, level, br, bl, x + 1, y + 1, x, y + 1)
+  addContourPoint(points, level, bl, tl, x, y + 1, x, y)
+
+  if (points.length < 2) return
+
+  if (points.length === 2) {
+    context.beginPath()
+    context.moveTo(points[0].x, points[0].y)
+    context.lineTo(points[1].x, points[1].y)
+    context.stroke()
+    return
+  }
+
+  if (points.length === 4) {
+    context.beginPath()
+    context.moveTo(points[0].x, points[0].y)
+    context.lineTo(points[1].x, points[1].y)
+    context.stroke()
+
+    context.beginPath()
+    context.moveTo(points[2].x, points[2].y)
+    context.lineTo(points[3].x, points[3].y)
+    context.stroke()
+  }
+}
+
+function addContourPoint(points, level, a, b, ax, ay, bx, by) {
+  const aAbove = a >= level
+  const bAbove = b >= level
+  if (aAbove === bAbove || a === b) return
+
+  const t = (level - a) / (b - a)
+  points.push({
+    x: ax + (bx - ax) * t,
+    y: ay + (by - ay) * t,
+  })
+}
+
+function drawContourLabels(context, heights, size, minHeight, maxHeight, step) {
+  context.save()
+  context.fillStyle = 'rgba(110, 84, 62, 0.9)'
+  context.font = '10px monospace'
+
+  const columns = [24, 72, 120, 160]
+  const rows = [28, 78, 128, 168]
+
+  for (const y of rows) {
+    for (const x of columns) {
+      if (x < 0 || x >= size || y < 0 || y >= size) continue
+      const height = heights[y][x]
+      const snapped = Math.round(height / step) * step
+      if (snapped < minHeight || snapped > maxHeight) continue
+      context.fillText(String(Math.round(snapped * 100)), x + 2, y - 2)
+    }
+  }
+
+  context.restore()
 }

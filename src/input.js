@@ -10,6 +10,7 @@ export function createInput(canvas) {
     left: false,
     right: false,
     jump: false,
+    descend: false,
   }
 
   // ============================================================
@@ -42,6 +43,9 @@ export function createInput(canvas) {
   // ============================================================
   let leftAttack = false
   let rightAttack = false
+  let toggleFly = false
+  let leftHeld = false
+  let leftReleased = false
 
   // ============================================================
   // POINTER LOCK
@@ -63,6 +67,8 @@ export function createInput(canvas) {
   // Also clear on blur in case the tab loses focus during mouse movement.
   window.addEventListener('blur', () => {
     resetMouseDelta()
+    leftHeld = false
+    leftReleased = false
   })
 
   // ============================================================
@@ -85,6 +91,13 @@ export function createInput(canvas) {
       case 'Space':
         keys.jump = true
         break
+      case 'ShiftLeft':
+      case 'ShiftRight':
+        keys.descend = true
+        break
+      case 'KeyF':
+        toggleFly = true
+        break
     }
   })
 
@@ -104,6 +117,10 @@ export function createInput(canvas) {
         break
       case 'Space':
         keys.jump = false
+        break
+      case 'ShiftLeft':
+      case 'ShiftRight':
+        keys.descend = false
         break
     }
   })
@@ -132,10 +149,20 @@ export function createInput(canvas) {
 
     if (event.button === 0) {
       leftAttack = true
+      leftHeld = true
     }
 
     if (event.button === 2) {
       rightAttack = true
+    }
+  })
+
+  canvas.addEventListener('mouseup', (event) => {
+    if (document.pointerLockElement !== canvas) return
+
+    if (event.button === 0) {
+      if (leftHeld) leftReleased = true
+      leftHeld = false
     }
   })
 
@@ -164,9 +191,25 @@ export function createInput(canvas) {
       return current
     },
 
+    isPrimaryHeld() {
+      return leftHeld
+    },
+
+    consumePrimaryRelease() {
+      const current = leftReleased
+      leftReleased = false
+      return current
+    },
+
     consumeAltAttack() {
       const current = rightAttack
       rightAttack = false
+      return current
+    },
+
+    consumeToggleFly() {
+      const current = toggleFly
+      toggleFly = false
       return current
     },
 

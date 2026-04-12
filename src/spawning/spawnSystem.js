@@ -93,6 +93,11 @@ export function createSpawnSystem(game, options = {}) {
   }
 
   function update(deltaTime) {
+    if (waveConfig.length === 0) {
+      wavePhase = 'complete'
+      return
+    }
+
     if (wavePhase === 'complete' || game.overlays?.isGameOver) return
 
     if (wavePhase === 'boot') {

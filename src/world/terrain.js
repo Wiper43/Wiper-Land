@@ -1,9 +1,13 @@
-import { BLOCK } from './blocks.js'
+import { getActiveWorldPreset } from './worldPresets.js'
 
-const GROUND_Y = -2
+export function getSurfaceHeightExact(bx, bz) {
+  return getActiveWorldPreset().getSurfaceHeightExact(bx, bz)
+}
+
+export function getSurfaceHeight(bx, bz) {
+  return Math.floor(getSurfaceHeightExact(bx, bz))
+}
 
 export function generateBlock(bx, by, bz) {
-  if (by === -1) return BLOCK.DIRT
-  if (by <= -2) return BLOCK.STONE
-  return BLOCK.AIR
+  return getActiveWorldPreset().getBlockId(bx, by, bz)
 }

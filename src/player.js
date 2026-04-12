@@ -10,6 +10,8 @@ export function createPlayer(camera, input, world, terrain = null) {
   const STEP_HEIGHT = 1.0
   const STEP_MAX_FALL_SPEED = 0.1
   const STEP_CAMERA_SMOOTH_SPEED = 14.0
+  const STEP_GROUNDED_GRACE = 0.08
+  const STEP_EPSILON = 0.05
 
   // Movement tuning
   const GRAVITY = 24
@@ -19,6 +21,8 @@ export function createPlayer(camera, input, world, terrain = null) {
   const AIR_ACCELERATION = 12
   const FRICTION = 14
   const AIR_CONTROL = 0.35
+  const FLY_SPEED_MULTIPLIER = 3
+  const FLY_VERTICAL_SPEED = MOVE_SPEED * FLY_SPEED_MULTIPLIER
 
   // Step slowdown tuning
   const STEP_SLOW_TIME = 0.18
@@ -37,6 +41,8 @@ export function createPlayer(camera, input, world, terrain = null) {
   let steppedThisFrame = false
   let visualStepOffset = 0
   let stepSlowTimer = 0
+  let stepGroundedGraceTimer = 0
+  let flyMode = false
 
   const forward = new THREE.Vector3()
   const right = new THREE.Vector3()
@@ -292,13 +298,13 @@ export function createPlayer(camera, input, world, terrain = null) {
   function tryStepUp(overlapBX, overlapBY, overlapBZ) {
     if (!terrain) return false
     if (steppedThisFrame) return false
-    if (!groundedAtFrameStart) return false
+    if (!groundedAtFrameStart && stepGroundedGraceTimer <= 0) return false
     if (velocity.y < -STEP_MAX_FALL_SPEED) return false
 
     const blockTop = overlapBY + 1
     const stepAmount = blockTop - position.y
 
-    if (stepAmount <= 0.001 || stepAmount > STEP_HEIGHT) {
+    if (stepAmount <= 0.001 || stepAmount > STEP_HEIGHT + STEP_EPSILON) {
       return false
     }
 
@@ -310,6 +316,7 @@ export function createPlayer(camera, input, world, terrain = null) {
     velocity.y = 0
     isGrounded = true
     steppedThisFrame = true
+    stepGroundedGraceTimer = STEP_GROUNDED_GRACE
     visualStepOffset += stepAmount
     stepSlowTimer = STEP_SLOW_TIME
     return true
@@ -346,7 +353,7 @@ export function createPlayer(camera, input, world, terrain = null) {
           if (!xOverlap || !zOverlap) continue
 
           if (tryStepUp(bx, by, bz)) {
-            return
+            return resolveVoxelHorizontalAxis(axis)
           }
 
           if (axis === 'x') {
@@ -403,8 +410,22 @@ export function createPlayer(camera, input, world, terrain = null) {
     groundedAtFrameStart = isGrounded
     steppedThisFrame = false
 
+    if (input.consumeToggleFly()) {
+      flyMode = !flyMode
+      velocity.set(0, 0, 0)
+      jumpQueued = false
+      isGrounded = false
+      visualStepOffset = 0
+      stepSlowTimer = 0
+      stepGroundedGraceTimer = 0
+    }
+
     if (stepSlowTimer > 0) {
       stepSlowTimer = Math.max(0, stepSlowTimer - deltaTime)
+    }
+
+    if (stepGroundedGraceTimer > 0) {
+      stepGroundedGraceTimer = Math.max(0, stepGroundedGraceTimer - deltaTime)
     }
 
     const { dx, dy } = input.consumeMouseDelta()
@@ -435,6 +456,27 @@ export function createPlayer(camera, input, world, terrain = null) {
       moveDir.normalize()
     }
 
+    if (flyMode) {
+      const flyVelocity = moveDir.multiplyScalar(MOVE_SPEED * FLY_SPEED_MULTIPLIER)
+
+      if (input.keys.jump) {
+        flyVelocity.y += FLY_VERTICAL_SPEED
+      }
+      if (input.keys.descend) {
+        flyVelocity.y -= FLY_VERTICAL_SPEED
+      }
+
+      position.addScaledVector(flyVelocity, deltaTime)
+      velocity.set(0, 0, 0)
+      isGrounded = false
+      camera.position.set(
+        position.x,
+        position.y + EYE_OFFSET,
+        position.z
+      )
+      return
+    }
+
     if (isGrounded) {
       applyFriction(deltaTime)
 
@@ -462,6 +504,9 @@ export function createPlayer(camera, input, world, terrain = null) {
 
     position.y += velocity.y * deltaTime
     resolveVerticalCollisions()
+    if (isGrounded) {
+      stepGroundedGraceTimer = STEP_GROUNDED_GRACE
+    }
 
     resolveHorizontalCollisions()
 
@@ -484,6 +529,9 @@ export function createPlayer(camera, input, world, terrain = null) {
     velocity,
     radius: PLAYER_RADIUS,
     height: PLAYER_HEIGHT,
+    get flyMode() {
+      return flyMode
+    },
     get isGrounded() {
       return isGrounded
     }

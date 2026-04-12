@@ -1,61 +1,149 @@
-# Wiper-Land
+# Wiper Land
 
-Hello world !!!! hehehehehehehehaweofja;owejfao;wiejfawo;iejf
+Wiper Land is a browser-based 3D voxel combat prototype built with `Three.js` and `Vite`.
 
+The current game is a first-person arena sandbox where you can move through a destructible block world, fight hostile creatures, and test an evolving combat and entity system. The project is also in the middle of a larger architecture migration from older prototype-style game logic toward a cleaner system-based structure.
 
-Wiper Land
+## What It Is
 
-Browser-based 3D arena sandbox.
+Wiper Land currently combines:
 
+- first-person movement and camera controls
+- a chunked voxel terrain system
+- destructible and regenerating blocks
+- player attacks with melee and spell-style combat
+- enemy entities with health, damage, and UI feedback
+- round-based zombie cow encounters
 
+This repo is both a playable prototype and a foundation for a larger survival / arena-style game.
 
-Testing GitHub connection.
+## Current Features
 
-1️⃣ Make sure your current work is saved first
-git add .
-git commit -m "Save progress before creating new branch"
-git push
+### Gameplay
 
-This prevents losing any work.
+- WASD movement
+- mouse look with pointer lock
+- jumping and gravity
+- left-click direct attack
+- right-click spell attacks
+- enemy health and damage
+- floating damage text
+- wave-based enemy spawning
+- victory / survival overlay flow
 
-2️⃣ Switch to the branch you want to branch from
+### World
 
-For example, if you want the new branch to start from your current combat work:
+- chunked voxel terrain
+- procedural block generation
+- block breaking
+- block regeneration with safety checks near the player
+- ray-based block hit tracing
+- player collision against voxel terrain
 
-git checkout phase2-combat
+### Systems In Progress
 
-If you want it to start from main instead:
+- modular entity system
+- modular combat pipeline
+- spawn system expansion
+- migration away from legacy `src/world.js`
+- cleaner ownership boundaries between world, combat, entities, and UI
 
-git checkout main
-3️⃣ Create the new branch
+## Tech Stack
 
-Example branch name:
+- `JavaScript`
+- `Three.js`
+- `Vite`
 
-git checkout -b phase2-destructible-blocks
+## Getting Started
 
-This command does two things at once:
+### Install dependencies
 
-creates branch
-AND
-switches to it
-4️⃣ Push the new branch to GitHub
+```bash
+npm install
+```
 
-The first time you push a new branch you must link it:
+### Run the game locally
 
-git push -u origin phase2-destructible-blocks
+```bash
+npm run dev
+```
 
-After this, future pushes are just:
+### Build for production
 
-git push
+```bash
+npm run build
+```
 
-//RUN GAME COMMAND
- npm dev run
+### Preview the production build
 
- 
-///////////////////////////////////////////////////////
-This resets everything to a clean repo state.
+```bash
+npm run preview
+```
 
-git reset --hard
-git clean -fd
+## Controls
 
-Basically restores the repo exactly to the commit.
+- `W A S D` move
+- `Mouse` look
+- `Space` jump
+- `Left Click` direct attack
+- `Right Click` selected spell attack
+- `F` debug voxel break test
+
+## Project Structure
+
+```text
+src/
+  game/         runtime assembly and update order
+  world/        voxel terrain, chunks, blocks, meshing, terrain
+  entities/     enemies, shared entity helpers, behaviors
+  combat/       attack resolution and damage flow
+  spawning/     wave and spawn management
+  loot/         drops and loot tables
+  ui/           overlays, floating text, health bars
+```
+
+## Architecture Direction
+
+The project is actively moving toward a system-based layout where:
+
+- `Game` owns runtime wiring and update order
+- `BlockWorld` owns chunks, terrain, and block queries
+- `EntitySystem` owns living dynamic actors
+- `CombatSystem` owns attack resolution and damage routing
+- `SpawnSystem` owns enemy population flow
+
+That direction is already visible in the current `src/game`, `src/world`, `src/entities`, `src/combat`, and `src/spawning` folders, even though some legacy prototype code still exists alongside the newer structure.
+
+## Current State
+
+Right now, Wiper Land is best described as:
+
+> a playable combat prototype inside an evolving voxel world
+
+The codebase already supports real gameplay, but it is also being reshaped into a cleaner foundation for adding:
+
+- more enemy types
+- region or biome-driven spawning
+- better AI behaviors
+- expanded combat interactions
+- more scalable world systems
+
+## Notes
+
+- `README.md` is the polished public overview.
+- `PROJECT_STATE.md` contains detailed development notes and progress history.
+- `PROJECT_ARCHITECTURE.md` describes the longer-term system design direction.
+
+## Roadmap
+
+Planned near-term improvements include:
+
+- deeper entity migration into the new system layout
+- combat unification between entities and voxel blocks
+- better spawn rules and enemy variety
+- continued cleanup of legacy world ownership
+- more polished survival / arena gameplay loops
+
+## License
+
+Currently listed as `ISC` in `package.json`.

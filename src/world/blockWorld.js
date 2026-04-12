@@ -29,6 +29,7 @@ import {
 } from './chunk.js'
 import { generateBlock } from './terrain.js'
 import { buildChunkMesh, createWorldBlockMaterial } from './mesher.js'
+import { getActiveWorldPreset } from './worldPresets.js'
 
 export class BlockWorld {
   constructor(scene) {
@@ -42,7 +43,10 @@ export class BlockWorld {
     this.material = createWorldBlockMaterial()
 
     this.chunkSize = CHUNK_SIZE
-    this.loadedRadius = 2
+    this.loadedRadius = 12
+    this.unloadRadius = this.loadedRadius + 2
+    this.worldHalfSize = Math.max(8, Math.floor((getActiveWorldPreset().worldSize ?? 384) / 2))
+    this.skyLightMaxY = 48
 
     // Regen tuning
     this.regenRetryDelay = 1.0
@@ -94,6 +98,24 @@ export class BlockWorld {
     return isSolidBlockId(this.getBlockId(bx, by, bz))
   }
 
+  getSkyLightAt(bx, by, bz) {
+    const sampleY = Math.floor(by)
+    let firstCoverY = null
+
+    for (let y = sampleY; y <= this.skyLightMaxY; y++) {
+      if (!this.isSolidBlock(bx, y, bz)) continue
+      firstCoverY = y
+      break
+    }
+
+    if (firstCoverY == null) return 1
+
+    const roofDistance = firstCoverY - sampleY
+    if (roofDistance <= 0) return 0.08
+
+    return THREE.MathUtils.clamp(roofDistance / 12, 0.08, 1)
+  }
+
   setBlock(x, y, z, type) {
     const { cx, cy, cz, lx, ly, lz } = this.worldToChunk(x, y, z)
     const chunk = this.getChunk(cx, cy, cz)
@@ -118,7 +140,6 @@ export class BlockWorld {
     const centerCx = Math.floor(player.position.x / CHUNK_SIZE)
     const centerCy = 0
     const centerCz = Math.floor(player.position.z / CHUNK_SIZE)
-    const ARENA_LIMIT = 20
 
     for (let cz = centerCz - this.loadedRadius; cz <= centerCz + this.loadedRadius; cz++) {
       for (let cy = centerCy - 1; cy <= centerCy + 1; cy++) {
@@ -127,10 +148,10 @@ export class BlockWorld {
           const worldZ = cz * CHUNK_SIZE
 
           if (
-            worldX < -ARENA_LIMIT ||
-            worldX > ARENA_LIMIT ||
-            worldZ < -ARENA_LIMIT ||
-            worldZ > ARENA_LIMIT
+            worldX < -this.worldHalfSize ||
+            worldX >= this.worldHalfSize ||
+            worldZ < -this.worldHalfSize ||
+            worldZ >= this.worldHalfSize
           ) {
             continue
           }
@@ -139,6 +160,8 @@ export class BlockWorld {
         }
       }
     }
+
+    this.unloadFarChunks(centerCx, centerCy, centerCz)
   }
 
   ensureChunk(cx, cy, cz) {
@@ -160,6 +183,30 @@ export class BlockWorld {
   getChunkAtBlock(bx, by, bz) {
     const { cx, cy, cz } = blockToChunk(bx, by, bz)
     return this.getChunk(cx, cy, cz)
+  }
+
+  unloadFarChunks(centerCx, centerCy, centerCz) {
+    for (const chunk of this.chunks.values()) {
+      const dx = Math.abs(chunk.cx - centerCx)
+      const dy = Math.abs(chunk.cy - centerCy)
+      const dz = Math.abs(chunk.cz - centerCz)
+
+      const outsideLoadedBand =
+        dx > this.unloadRadius ||
+        dy > 2 ||
+        dz > this.unloadRadius
+
+      const outsideWorldBounds =
+        chunk.cx * CHUNK_SIZE < -this.worldHalfSize ||
+        chunk.cx * CHUNK_SIZE >= this.worldHalfSize ||
+        chunk.cz * CHUNK_SIZE < -this.worldHalfSize ||
+        chunk.cz * CHUNK_SIZE >= this.worldHalfSize
+
+      if (!outsideLoadedBand && !outsideWorldBounds) continue
+
+      disposeChunkMesh(chunk)
+      this.chunks.delete(chunk.key)
+    }
   }
 
   breakBlock(bx, by, bz) {

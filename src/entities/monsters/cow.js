@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { createTextSprite, disposeTextSprite } from '../../ui/floatingText.js'
 import { flashMeshes, updateHealthBarText, updateHealthBarBorder } from '../../ui/healthBars.js'
-import { horizontalDistance, canMoveTo, canMoveToVoxel, rotateTowardsAngle, randomRange, applyGravityAndGrounding } from '../entityMovement.js'
+import { horizontalDistance, canMoveTo, rotateTowardsAngle, randomRange, applyGravityAndGrounding, tryStepMoveOnVoxelGrid } from '../entityMovement.js'
 
 // ============================================================
 // COW ENTITY
@@ -167,6 +167,8 @@ export function createCow(game, position = new THREE.Vector3(), audio = {}) {
     labelHeight: 3.0,
     velocity: new THREE.Vector3(),
     grounded: false,
+    groundedAtFrameStart: false,
+    stepGroundedGraceTimer: 0,
     moveTime: 0,
     cowVolume: 0.45,
     aggroRange: COW_AGGRO_RANGE,
@@ -359,24 +361,53 @@ export function createCow(game, position = new THREE.Vector3(), audio = {}) {
       const moveStep = toTarget.clone().multiplyScalar(moveDistance)
       const targetYaw = Math.atan2(toTarget.x, toTarget.z) - Math.PI / 2
       const fullTarget = this.mesh.position.clone().add(moveStep)
+      const fullVoxelMove = tryStepMoveOnVoxelGrid(this, game.blockWorld, fullTarget, {
+        halfX: COW_COLLIDER_HALF.x,
+        halfZ: COW_COLLIDER_HALF.z,
+        heightBlocks: 3,
+        stepHeight: 1.0,
+        maxFallSpeed: 0.1,
+        groundedGraceTime: 0.08,
+      })
 
       if (
         canMoveTo(colliders, this.collider, fullTarget, COW_COLLIDER_HALF) &&
-        canMoveToVoxel(game.blockWorld, fullTarget, COW_COLLIDER_HALF.x, COW_COLLIDER_HALF.z)
+        fullVoxelMove.moved
       ) {
         this.mesh.rotation.y = rotateTowardsAngle(this.mesh.rotation.y, targetYaw, COW_TURN_SPEED * deltaTime)
-        this.mesh.position.copy(fullTarget)
+        this.mesh.position.copy(fullVoxelMove.position)
+        if (fullVoxelMove.stepped) {
+          this.grounded = true
+          this.stepGroundedGraceTimer = fullVoxelMove.stepGroundedGraceTime
+          this.velocity.y = 0
+        }
         return { moved: true, reached: distance <= COW_WAYPOINT_REACH_DISTANCE, slideAxis: null }
       }
 
       const xOnlyTarget = this.mesh.position.clone().add(new THREE.Vector3(moveStep.x, 0, 0))
       const zOnlyTarget = this.mesh.position.clone().add(new THREE.Vector3(0, 0, moveStep.z))
+      const xVoxelMove = tryStepMoveOnVoxelGrid(this, game.blockWorld, xOnlyTarget, {
+        halfX: COW_COLLIDER_HALF.x,
+        halfZ: COW_COLLIDER_HALF.z,
+        heightBlocks: 3,
+        stepHeight: 1.0,
+        maxFallSpeed: 0.1,
+        groundedGraceTime: 0.08,
+      })
+      const zVoxelMove = tryStepMoveOnVoxelGrid(this, game.blockWorld, zOnlyTarget, {
+        halfX: COW_COLLIDER_HALF.x,
+        halfZ: COW_COLLIDER_HALF.z,
+        heightBlocks: 3,
+        stepHeight: 1.0,
+        maxFallSpeed: 0.1,
+        groundedGraceTime: 0.08,
+      })
       const canSlideX = Math.abs(moveStep.x) > 0.0001 &&
         canMoveTo(colliders, this.collider, xOnlyTarget, COW_COLLIDER_HALF) &&
-        canMoveToVoxel(game.blockWorld, xOnlyTarget, COW_COLLIDER_HALF.x, COW_COLLIDER_HALF.z)
+        xVoxelMove.moved
       const canSlideZ = Math.abs(moveStep.z) > 0.0001 &&
         canMoveTo(colliders, this.collider, zOnlyTarget, COW_COLLIDER_HALF) &&
-        canMoveToVoxel(game.blockWorld, zOnlyTarget, COW_COLLIDER_HALF.x, COW_COLLIDER_HALF.z)
+        zVoxelMove.moved
 
       if (canSlideX || canSlideZ) {
         let slideTarget = null
@@ -384,14 +415,14 @@ export function createCow(game, position = new THREE.Vector3(), audio = {}) {
 
         if (canSlideX && canSlideZ) {
           if (Math.abs(moveStep.x) >= Math.abs(moveStep.z)) {
-            slideTarget = xOnlyTarget; slideAxis = 'x'
+            slideTarget = xVoxelMove.position; slideAxis = 'x'
           } else {
-            slideTarget = zOnlyTarget; slideAxis = 'z'
+            slideTarget = zVoxelMove.position; slideAxis = 'z'
           }
         } else if (canSlideX) {
-          slideTarget = xOnlyTarget; slideAxis = 'x'
+          slideTarget = xVoxelMove.position; slideAxis = 'x'
         } else {
-          slideTarget = zOnlyTarget; slideAxis = 'z'
+          slideTarget = zVoxelMove.position; slideAxis = 'z'
         }
 
         const slideDir = new THREE.Vector3(
@@ -404,6 +435,11 @@ export function createCow(game, position = new THREE.Vector3(), audio = {}) {
         }
 
         this.mesh.position.copy(slideTarget)
+        if ((slideAxis === 'x' ? xVoxelMove : zVoxelMove).stepped) {
+          this.grounded = true
+          this.stepGroundedGraceTimer = (slideAxis === 'x' ? xVoxelMove : zVoxelMove).stepGroundedGraceTime
+          this.velocity.y = 0
+        }
         return {
           moved: true,
           reached: horizontalDistance(this.mesh.position, targetPoint) <= COW_WAYPOINT_REACH_DISTANCE,
@@ -417,7 +453,15 @@ export function createCow(game, position = new THREE.Vector3(), audio = {}) {
     update(deltaTime, camera, player) {
       if (this.isDead) return
 
+      this.groundedAtFrameStart = this.grounded
+      if (this.stepGroundedGraceTimer > 0) {
+        this.stepGroundedGraceTimer = Math.max(0, this.stepGroundedGraceTimer - deltaTime)
+      }
+
       applyGravityAndGrounding(this, deltaTime, game.blockWorld, COW_COLLIDER_HALF.x, COW_COLLIDER_HALF.z)
+      if (this.grounded) {
+        this.stepGroundedGraceTimer = 0.08
+      }
 
       this.moveTime += deltaTime
       this.pathRecalcTimer -= deltaTime

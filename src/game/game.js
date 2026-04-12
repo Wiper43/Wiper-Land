@@ -16,6 +16,10 @@ import { createOverlaySystem } from '../ui/overlays.js'
 import { createDropSystem } from '../loot/dropSystem.js'
 import { createUpdateLoop } from './updateLoop.js'
 import { getBlockHitPoints } from '../world/blocks.js'
+import { createTreeSystem } from '../world/treeSystem.js'
+import { getActiveWorldPreset } from '../world/worldPresets.js'
+import { createTargetDummy } from '../entities/props/targetDummy.js'
+import { createFireBombSystem } from '../combat/fireBombSystem.js'
 
 // ============================================================
 // GAME CONTAINER
@@ -24,10 +28,14 @@ import { getBlockHitPoints } from '../world/blocks.js'
 // ============================================================
 
 export function createGame(appElement) {
+  const activePreset = getActiveWorldPreset()
+  const navWorldSize = activePreset.worldSize ?? 384
+  const navWorldOrigin = -navWorldSize / 2
+
   // --------------------------------------------------------
   // RENDERER + SCENE
   // --------------------------------------------------------
-  const { scene, camera, renderer } = createRenderer(appElement)
+  const { scene, camera, renderer, updateSky } = createRenderer(appElement)
   const input = createInput(renderer.domElement)
   const ui = createUI()
 
@@ -42,12 +50,12 @@ export function createGame(appElement) {
   // --------------------------------------------------------
   // WORLD + NAV
   // --------------------------------------------------------
-  const blockWorld = new BlockWorld(scene)
   const colliders = []
+  const blockWorld = new BlockWorld(scene)
   const navGrid = createNavGrid({
-    worldSize: 40,
+    worldSize: navWorldSize,
     cellSize: 1,
-    origin: new THREE.Vector3(-20, 0, -20),
+    origin: new THREE.Vector3(navWorldOrigin, 0, navWorldOrigin),
     agentRadius: 0.95,
     maxClimbStep: 1.25,
   })
@@ -64,6 +72,9 @@ export function createGame(appElement) {
   // ENTITY SYSTEM
   // --------------------------------------------------------
   const entitySystem = createEntitySystem()
+  const treeSystem = createTreeSystem(scene, blockWorld, colliders, entitySystem, () => {
+    game.navDirty = true
+  })
 
   // --------------------------------------------------------
   // UI SYSTEMS
@@ -85,11 +96,13 @@ export function createGame(appElement) {
     scene,
     camera,
     renderer,
+    updateSky,
     input,
     ui,
     player,
     heldItem,
     blockWorld,
+    treeSystem,
     colliders,
     navGrid,
     navDirty: true,
@@ -99,6 +112,7 @@ export function createGame(appElement) {
     overlays,
     beamVisuals,
     attackBeams,
+    fireBombs: null,
     cowVolume: 0.8,
     audio,
     damageSystem: { applySmoothPlayerKnockback },
@@ -124,6 +138,8 @@ export function createGame(appElement) {
     },
   }
 
+  game.fireBombs = createFireBombSystem(game)
+
   // --------------------------------------------------------
   // COMBAT
   // --------------------------------------------------------
@@ -137,8 +153,15 @@ export function createGame(appElement) {
   // --------------------------------------------------------
   // SPAWN SYSTEM
   // --------------------------------------------------------
-  const spawning = createSpawnSystem(game, { audio })
+  const spawning = createSpawnSystem(game, {
+    audio,
+    waveConfig: activePreset.id === 'world3' ? [] : undefined,
+  })
   game.spawning = spawning
+
+  if (activePreset.id === 'world3') {
+    spawnTrainingDummies(game)
+  }
 
   // --------------------------------------------------------
   // DROP SYSTEM
@@ -225,4 +248,17 @@ export function createGame(appElement) {
   overlays.initPlayerState(player)
 
   return game
+}
+
+function spawnTrainingDummies(game) {
+  const dummyPositions = [
+    new THREE.Vector3(-8, 0.02, -8),
+    new THREE.Vector3(0, 0.02, -4),
+    new THREE.Vector3(8, 0.02, -10),
+  ]
+
+  for (const position of dummyPositions) {
+    const dummy = createTargetDummy(game, position)
+    game.entitySystem.add(dummy)
+  }
 }

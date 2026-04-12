@@ -1,3 +1,5 @@
+import * as THREE from 'three'
+
 // ============================================================
 // UPDATE LOOP
 // Owns the strict, ordered update sequence.
@@ -5,6 +7,8 @@
 // ============================================================
 
 export function createUpdateLoop(game) {
+  const mapFacingDirection = new THREE.Vector3()
+
   function update(deltaTime, now) {
     // 1. Player intent + movement
     game.player.update(deltaTime)
@@ -12,11 +16,17 @@ export function createUpdateLoop(game) {
     // 2. Held item animation
     game.heldItem.update(deltaTime)
 
+    // 2b. Left-click Fire Bomb charge + projectile
+    game.fireBombs?.update?.(deltaTime)
+
     // 3. Entity AI + movement (includes cows, spiders, etc.)
     game.entitySystem.update(deltaTime, game.camera, game.player)
 
     // 4. Block world (regen, chunk updates)
     game.blockWorld.update(deltaTime, game.player)
+
+    // 4b. Trees + foliage
+    game.treeSystem?.update?.(deltaTime, game.player)
 
     // 5. Spawn system (wave management)
     game.spawning.update(deltaTime)
@@ -54,6 +64,9 @@ export function createUpdateLoop(game) {
       game.spawning.waveCount,
       game.spawning.getAliveCowCount()
     )
+    game.camera.getWorldDirection(mapFacingDirection)
+    game.ui.updateMapPlayerPosition(game.player.position, mapFacingDirection)
+    game.updateSky?.(deltaTime)
 
     // 13. Legacy world update (blocks, nav debug)
     if (game.legacyWorld) {
@@ -73,11 +86,15 @@ function updateAttackBeams(deltaTime, attackBeams, scene) {
     const item = attackBeams[i]
     item.age += deltaTime
     const t = item.age / item.life
+    item.updateVisual?.(t)
     if (item.line?.material) {
       item.line.material.transparent = true
       item.line.material.opacity = Math.max(0, 1 - t)
     }
     if (item.age >= item.life) {
+      if (item.cleanup) {
+        item.cleanup()
+      }
       if (item.line) {
         scene.remove(item.line)
         item.line.geometry?.dispose?.()
