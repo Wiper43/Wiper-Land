@@ -1,17 +1,38 @@
 # Wiper Land
 
-Wiper Land is now a globe-first voxel prototype built with `Three.js` and `Vite`, inspired by the cube-sphere planet structure in `ddupont808/planetcraft`.
+Wiper Land is a globe-first action prototype built with `Three.js` and `Vite`.
 
-The project keeps the spell-combat sandbox from the earlier prototype, but the world foundation has been restarted around a curved voxel shell instead of a flat chunk grid.
+The project started as a voxel combat sandbox, but the long-term direction is now clearer:
+- cube-sphere planet foundation
+- Earth-like globe presentation
+- destructible terrain above an immutable shell
+- surface-based monster navigation
+- lightweight ecosystem and spawn zones
+- modular combat, equipment, and UI systems
 
-## Current Focus
+## Current Direction
 
-- cube-sphere globe terrain
-- curved voxel chunk meshing
-- radial gravity and spherical player movement
-- destructible voxel blocks on the planet surface
-- preserved combat spells and fire bomb attacks
-- cleaner globe-first boot flow
+The target design is:
+- **immutable shell** as the real planet body
+- **heightmapped terrain** above that shell for mountains, valleys, rivers, and coastlines
+- **localized terrain destruction** for craters and shell exposure
+- **surface graph navigation** for monsters instead of full 3D voxel pathfinding
+- **heatzone spawning** and faction-based ecosystem behavior
+- **equipment and inventory UI** layered on top of the combat sandbox
+
+This direction is intended to keep the game feeling alive without letting terrain, AI, and destruction costs spiral out of control.
+
+## Current Prototype Features
+
+Right now the prototype already includes:
+- globe-first cube-sphere world
+- radial gravity and spherical movement
+- destructible surface blocks
+- pole beacons and compass guidance
+- orbit-style globe map overlay
+- approximate Earth-style continents and oceans
+- spell combat and fire bomb attacks
+- fly mode for rapid traversal and debugging
 
 ## Controls
 
@@ -21,10 +42,47 @@ The project keeps the spell-combat sandbox from the earlier prototype, but the w
 - `Shift` dive in fly mode
 - `F` toggle fly mode
 - `X` fly toward the core
-- `G` break the targeted voxel block
+- `G` break the targeted block
 - `Left Click` charge and release fire bomb
 - `Right Click` cast the selected spell
-- `M` open the map overlay
+- `M` open the globe map overlay
+
+## Near-Term Architecture Goals
+
+### Terrain
+- replace the current thin shell surface with destructible heightmapped terrain
+- treat the shell as the unbreakable sea-level / bedrock floor
+- support mountain ranges, riverbeds, coastlines, and craters
+
+### AI Navigation
+- move monsters on a coarse surface graph
+- rebuild nav only in local terrain-damaged areas
+- let monsters break small amounts of terrain when needed
+
+### World Simulation
+- use biome and heatzone-driven spawn logic
+- let factions fight each other and create a lightweight ecosystem
+- keep far-away simulation abstract to avoid performance spikes
+
+### Player Progression
+- add inventory, equipment slots, weapon/armor handling, and item-driven stats
+
+## Project Structure
+
+```text
+src/
+  game/           runtime wiring and frame update order
+  world/
+    sphere/       cube-sphere math, terrain, appearance, meshing
+    navigation/   surface graph pathing and nav chunk rebuilds
+    spawning/     heatzones, spawn budgets, ecosystem systems
+  entities/       monsters, wildlife, movement, and AI
+  combat/         spells, explosions, damage systems
+  equipment/      inventory, slots, item definitions, loot
+  ui/             HUD, map, overlays, inventory/equipment panels
+  environment/    birds, wind, ambience helpers
+  audio/          biome, river, wind, and combat sound systems
+```
 
 ## Getting Started
 
@@ -39,30 +97,11 @@ Production build:
 npm run build
 ```
 
-## Project Structure
+## Architecture Reference
 
-```text
-src/
-  game/           runtime assembly and frame update order
-  world/
-    sphere/       cube-sphere math, chunk addressing, terrain, meshing
-    blocks.js     shared voxel/block definitions
-    chunk.js      chunk storage and dirty-state helpers
-  combat/         spells, ray attacks, fire bomb logic
-  entities/       entity framework kept for future enemies and props
-  ui/             overlays, floating text, health bars
-```
+The full architecture plan now lives in [PROJECT_ARCHITECTURE.md](PROJECT_ARCHITECTURE.md).
 
-## Architecture Notes
+## Reference Inspiration
 
-The restart is intentionally globe-first:
-
-- `src/main.js` boots directly into the globe world.
-- `src/game/game.js` wires a `SphereWorld` runtime instead of branching between flat and globe modes.
-- `src/world/sphere/` is the authoritative planet pipeline.
-- Combat systems stay modular so the spell sandbox survives the world rewrite.
-
-## Reference
-
-Planet math and overall direction were rebuilt with `planetcraft` as the reference implementation:
+The globe math and general cube-sphere direction were originally inspired by:
 https://github.com/ddupont808/planetcraft

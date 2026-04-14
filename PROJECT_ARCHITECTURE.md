@@ -1,371 +1,400 @@
-Core design goal
+# Wiper Land - Project Architecture
 
-The new source of truth should become:
+## Core Direction
 
-Game
+Wiper Land should move toward a **heightmapped globe over an immutable shell**.
 
-owns systems
+That means:
+- the shell is the true planet body and cannot be destroyed
+- terrain above the shell is a destructible height field
+- the planet remains globe-first and cube-sphere based
+- AI navigates the surface instead of full 3D voxel space
+- distant world simulation stays lightweight so the game keeps running smoothly
 
-runs update order
+This is the best compromise between:
+- Breath of the Wild style elevation
+- destructible terrain and craters
+- monster navigation on a globe
+- ecosystem and spawning systems
+- acceptable performance
 
-passes shared references
+## World Model
 
-BlockWorld
+The world should be split into 3 main layers.
 
-owns chunks, blocks, terrain queries, region queries
+### 1. Immutable Shell
 
-EntitySystem
+Purpose:
+- base planet body
+- sea-level floor / ocean floor / bedrock boundary
+- never destructible
 
-owns dynamic creatures, projectiles, drops, NPCs
+Rules:
+- all deformation clamps at the shell
+- no explosion, monster, or player action can dig below it
+- shell remains the stable reference for rendering, navigation, and physics
 
-CombatSystem
+### 2. Terrain Thickness Layer
 
-owns attack resolution and damage routing
+Purpose:
+- stores terrain height above the shell
+- creates mountains, valleys, ridges, coastlines, and riverbeds
+- supports localized destruction
 
-SpawnSystem
+Rules:
+- mountains are positive terrain thickness above shell
+- craters lower terrain thickness
+- terrain cannot go below zero thickness
+- this layer is chunked and rebuilt only where modified
 
-owns what appears where and when
+### 3. Surface Metadata Layer
 
-That replaces the current split where legacy world.js still owns too much gameplay state. Your own refactor notes call out that world.js currently mixes entities, waves, spawning, UI state, beams, nav, and win/loss state, and should be replaced by a lighter top-level game container.
+Purpose:
+- biome, moisture, temperature, river proximity, vegetation density, ambient tags
+- drives visuals, sound, spawn rules, and ecosystem behavior
 
-Recommended folder structure
+Examples:
+- tropical forest
+- temperate grassland
+- alpine mountain
+- desert
+- polar ice
+- river corridor
+
+## High-Level System Ownership
+
+### Game
+
+Owns:
+- system wiring
+- update order
+- scene / camera / renderer references
+- shared runtime state
+- cross-system coordination
+
+### Planet Surface Runtime
+
+Owns:
+- cube-sphere coordinate math
+- shell radius and face resolution
+- chunk lifetime
+- terrain deformation
+- terrain queries
+- terrain mesh rebuilds
+- LOD policy
+
+### Navigation System
+
+Owns:
+- surface graph generation
+- node passability and slope checks
+- local graph rebuilds when terrain changes
+- path queries for monsters
+
+### Spawn / Ecosystem System
+
+Owns:
+- heatzones
+- spawn budgets
+- faction populations
+- offscreen ecosystem simulation
+- active spawn/despawn decisions
+
+### Entity System
+
+Owns:
+- monsters, wildlife, birds, pickups, projectiles, NPCs
+- entity registry
+- nearby queries
+- sleeping / active state
+
+### Equipment / Inventory System
+
+Owns:
+- player equipment slots
+- inventory
+- item definitions
+- stat derivation from gear
+
+### Audio / Ambient System
+
+Owns:
+- wind ambience
+- river sound zones
+- biome ambience
+- nearby activity sounds
+
+## Recommended Folder Structure
+
+```text
 src/
   main.js
 
   game/
     game.js
-    gameState.js
     updateLoop.js
-    serviceLocator.js
+    worldRuntime.js
 
   world/
-    blockWorld.js
-    chunk.js
-    mesher.js
-    terrain.js
-    blocks.js
-    worldMath.js
-    regions.js
-    regionSampler.js
-    worldQueries.js
+    sphere/
+      cubeSphereCoords.js
+      cubeSphereChunkMath.js
+      shellField.js
+      surfaceGrid.js
+      terrainField.js
+      terrainGenerator.js
+      terrainDeformer.js
+      terrainMesher.js
+      terrainLOD.js
+      biomeField.js
+      riverField.js
+      earthAppearance.js
+
+    navigation/
+      navSurfaceGraph.js
+      navChunkBuilder.js
+      navQueries.js
+      flowField.js
+
+    spawning/
+      heatZoneField.js
+      spawnDirector.js
+      spawnBudget.js
+      factionRules.js
+      ecosystemSystem.js
 
   entities/
     entitySystem.js
     entityFactory.js
-    entityTypes.js
     entityMovement.js
-    entityCollision.js
-    entityDamage.js
-    entityUI.js
-    entityQueries.js
+    entityCombat.js
+    monsterAI.js
+    surfaceMover.js
+    steering.js
 
-    monsters/
-      monsterDefs.js
-      spider.js
-      cow.js
-      wolf.js
-      zombieCow.js
-
-    behaviors/
-      idle.js
-      wander.js
-      chaseTarget.js
-      flee.js
-      meleeAttack.js
-      rangedAttack.js
-      edgeAvoidance.js
-      packFollow.js
-      herdProtect.js
+  equipment/
+    inventory.js
+    equipmentSlots.js
+    itemDefs.js
+    lootTables.js
 
   combat/
     combatSystem.js
-    attackResolver.js
-    raycastEntities.js
-    raycastBlocks.js
     damageSystem.js
-    hitResults.js
-    combatTypes.js
+    fireBombSystem.js
+    spellSystem.js
 
-  spawning/
-    spawnSystem.js
-    spawnPools.js
-    spawnBudget.js
-    spawnRules.js
-    spawnLocations.js
+  environment/
+    birdSystem.js
+    windField.js
+    ambientFX.js
 
-  loot/
-    dropSystem.js
-    lootTables.js
-
-  fx/
-    beamVisuals.js
-    floatingText.js
-    deathEffects.js
+  audio/
+    ambientSystem.js
+    riverAudio.js
+    windAudio.js
+    combatAudio.js
 
   ui/
     hud.js
-    healthBars.js
+    mapOverlay.js
+    inventoryPanel.js
+    equipmentPanel.js
+    tooltipPanel.js
+    floatingText.js
     overlays.js
-    debugUI.js
+```
 
-  player/
-    playerController.js
-    playerCombatAdapter.js
-    playerStats.js
-    playerInventory.js
+## Terrain Architecture
 
-This fits your earlier long-term structure, which already separates world, chunk, terrain, entities, combat, UI, and later networking/persistence.
+### Core Data Per Surface Cell
 
-What each system should own
-game/
-game.js
+Each surface cell should eventually store data like:
 
-This becomes the new root runtime object.
-
-Owns:
-
-references to all systems
-
-startup wiring
-
-shared update order
-
-scene-level references
-
-debug flags
-
-save/load hooks later
-
-Shape:
-
-game = {
-  scene,
-  camera,
-  renderer,
-  input,
-  player,
-  blockWorld,
-  entities,
-  combat,
-  spawning,
-  loot,
-  fx,
-  ui,
-  state,
-  update(dt)
+```js
+{
+  shellHeight: 0,
+  terrainHeight: 34,
+  moisture: 0.62,
+  temperature: 0.48,
+  biome: 'temperate_forest',
+  riverMask: 0.0,
+  destructible: true
 }
+```
 
-This matches the refactor direction you already outlined.
+### Terrain Generation Goals
 
-gameState.js
+Terrain generation should produce:
+- oceans and coastlines
+- mountain ranges
+- valleys and plateaus
+- rivers and drainage basins
+- biome transitions by latitude, moisture, and elevation
+
+Recommended generation inputs:
+- continent mask or continent-scale shape field
+- ridged mountain noise
+- broad terrain noise
+- river flow field
+- latitude-based climate bands
+
+### Destruction Model
+
+Destruction should modify **terrain thickness**, not the shell.
+
+Explosion flow:
+1. find nearby surface cells
+2. apply radial falloff
+3. subtract terrain thickness
+4. clamp at shell
+5. mark touched terrain chunks dirty
+6. rebuild only local terrain + local nav chunks
+
+This supports:
+- craters
+- trenches
+- blast scars
+- shell exposure
+
+It intentionally does not support:
+- deep caves everywhere
+- arbitrary tunneling
+- overhang-heavy voxel worlds
+
+That tradeoff is deliberate for performance.
+
+## Rendering Strategy
+
+### Terrain Rendering
+
+Use chunked terrain meshes generated from the height field.
+
+Per chunk:
+- sample the local height field
+- generate mesh vertices from shell radius + terrain height
+- compute normals
+- apply biome colors / textures
+- rebuild only changed chunks
+
+### LOD
+
+Use aggressive LOD because the planet is huge.
+
+Recommended approach:
+- near player: full local chunk detail
+- medium range: simplified chunk mesh
+- far range: coarse planet mesh
+- very far effects: atmosphere, clouds, continent colors only
+
+### Atmosphere / Life Layers
+
+Cheap systems with strong visual return:
+- atmosphere rim glow
+- moving cloud layer
+- instanced trees / rocks only near player
+- instanced birds and ambience actors by biome
+
+## AI Navigation
+
+### Best Navigation Model
+
+AI should navigate the **surface graph**, not full 3D voxels.
+
+Use:
+- one navigation node per coarse surface cell
+- edges only where slope and passability are valid
+- A* for long-range pathing
+- steering for local pursuit and combat spacing
+
+This keeps monster pathfinding stable and affordable.
+
+### Why This Is Better Than Full Voxels
+
+Full voxel navigation would require:
+- stacked-block reasoning
+- jump / fall / cave / tunnel pathfinding
+- expensive nav rebuilds after destruction
+
+Surface navigation gives you:
+- stable globe pathing
+- easy slope rules
+- local terrain damage support
+- cheaper updates after craters
+
+### Terrain-Breaking Monsters
+
+Monsters should not behave like full miners.
+
+Cheap but effective options:
+- smash low cover blocking path
+- break destructible ridges in a small radius
+- create shallow craters with special attacks
+- only evaluate terrain-breaking when stuck or when using a heavy attack
+
+That gives the feeling of destructive AI without full mining simulation.
+
+## Spawn System and Heatzones
+
+### Heatzones
+
+A heatzone is a region that biases what can spawn there.
+
+Example fields:
+
+```js
+{
+  id: 'andes_predator_zone',
+  faction: 'predators',
+  biomeTags: ['mountain', 'temperate'],
+  center: { faceIdx, bx, by },
+  radius: 220,
+  budget: 18,
+  spawnTable: ['raptor', 'wolf', 'stingbat']
+}
+```
+
+### Spawn Director
 
 Owns:
+- active zone evaluation near player
+- local population caps
+- spawn budget control
+- despawn and sleep behavior far away
 
-paused/running/debug states
+Rules:
+- only fully simulate zones near active players
+- keep offscreen populations abstract
+- use biome + heatzone + faction weights together
 
-game mode
+## Ecosystem Simulation
 
-progression flags
+Do not simulate the whole planet at full fidelity.
 
-temporary milestone flags
+Use a hybrid model:
+- near player: real entities fight, hunt, flee, patrol
+- far from player: ecosystem runs as lightweight counters and periodic zone updates
 
-updateLoop.js
+Offscreen ecosystem can track:
+- predator pressure
+- prey population
+- faction control
+- corruption / danger escalation
 
-Owns the strict update order, which is important once systems multiply.
+That lets the world feel alive without spawning thousands of real actors.
 
-Recommended order:
+## Entity / Faction Model
 
-input
+Monsters should be data-driven.
 
-player intent
+Suggested core fields:
 
-spawning
-
-entity AI
-
-entity movement/collision
-
-combat resolution
-
-death/drop cleanup
-
-FX/UI update
-
-render sync
-
-world/
-blockWorld.js
-
-Owns:
-
-chunk registry
-
-block set/get
-
-isSolidBlock
-
-block damage and regeneration
-
-chunk dirty marking
-
-world-space to voxel-space conversion
-
-high-level terrain queries
-
-This remains the backbone of the voxel game.
-
-chunk.js
-
-Owns:
-
-block storage per chunk
-
-local indexing
-
-dirty flags
-
-mesh refs
-
-mesher.js
-
-Owns:
-
-generating visible voxel geometry
-
-rebuilding chunk meshes
-
-later: greedy meshing if you add it
-
-terrain.js
-
-Owns:
-
-procedural terrain generation
-
-caves later
-
-layer/material logic
-
-terrain noise composition
-
-regions.js
-
-Owns:
-
-biome/region definitions
-
-region tags
-
-region rules
-
-Examples:
-
-plains
-
-forest
-
-swamp
-
-cave
-
-corrupted
-
-frozen
-
-volcanic
-
-Your refactor notes call out region/biome metadata as a key requirement for scalable monster spawning.
-
-regionSampler.js
-
-Owns:
-
-getRegionDataAt(x, z)
-
-temperature/moisture/danger/corruption sampling
-
-cave-vs-surface classification
-
-This is one of the most important future-facing files because it turns terrain into spawn information. Your notes explicitly identify getRegionDataAt(x, z) as the right kind of world-facing API.
-
-worldQueries.js
-
-Owns shared world helper queries like:
-
-getSurfaceYAt(x, z)
-
-findNearbyStandablePositions(center, radius)
-
-isWalkableCell(x, y, z)
-
-getBlocksInRadius(...)
-
-This keeps query logic out of combat and AI.
-
-entities/
-
-This is the most important subsystem for scalability.
-
-Your notes already identify the need for a common entity model with shared fields like id, species, health, state, brain, sensors, and common hooks like update, takeDamage, and onDeath.
-
-entitySystem.js
-
-Owns:
-
-the master entity registry
-
-add/remove/update iteration
-
-fast lookup by id
-
-filtering by type/faction/tag
-
-cleanup of dead entities
-
-Core APIs:
-
-addEntity(entity)
-
-removeEntity(id)
-
-update(dt, game)
-
-getNearbyEntities(position, radius)
-
-getAttackableEntities()
-
-This should replace world.entities as the real owner.
-
-entityFactory.js
-
-Owns:
-
-constructing entity instances from definitions
-
-applying variants/modifiers
-
-attaching behaviors
-
-mesh/model creation hooks
-
-Important API:
-
-createMonster(speciesId, spawnData, game)
-
-This is central to your goal of generating lots of monsters in different regions. Your own notes call out the factory pattern directly.
-
-entityTypes.js
-
-Defines shared shape/contracts.
-
-Example contract:
-
+```js
 {
   id,
-  type,
   species,
   faction,
-  tags,
+  biomeTags,
   position,
   velocity,
   radius,
@@ -373,688 +402,118 @@ Example contract:
   health,
   maxHealth,
   isDead,
-  canTakeDamage,
-  blocksAttack,
-  stats,
+  canDamageTerrain,
+  combatRole,
   state,
-  brain,
-  sensors,
-  mesh,
-  update(dt, game),
-  takeDamage(amount, source, context),
-  onDeath(game, context),
-  getHitShape(),
-  getAnchorPosition()
+  targetId,
+  update(dt, game)
 }
-entityMovement.js
-
-Owns:
-
-gravity
-
-desired movement resolution
-
-grounded state
-
-stepping/falling
-
-shared locomotion helpers
-
-Important API:
-
-moveEntityWithVoxelCollisions(entity, desiredMotion, blockWorld)
-
-That exact idea is already in your refactor notes and it is a big one for consistency.
-
-entityCollision.js
-
-Owns:
-
-AABB/capsule/body overlap helpers
-
-entity-vs-world tests
-
-entity-vs-entity separation later if needed
-
-entityDamage.js
-
-Owns:
-
-applying damage
-
-hurt cooldown if added
-
-resistances later
-
-death state transitions
-
-entityUI.js
-
-Owns:
-
-health bar attachments
-
-floating names
-
-anchor position logic
-
-damage popup spawn hooks
-
-entityQueries.js
-
-Owns:
-
-efficient queries for AI/combat
-
-nearest prey
-
-nearby allies
-
-pack leader lookup
-
-threat detection
-
-entities/monsters/
-monsterDefs.js
-
-This is the heart of scalable content.
-
-Owns data, not code:
-
-base stats
-
-size
-
-movement speed
-
-aggression
-
-attack range
-
-biome tags
-
-region weights
-
-drop tables
-
-faction
-
-behavior package
-
-variants
-
-Your notes explicitly say monsters should be data-driven, not code-driven, and that definitions should include things like health, move speed, biome tags, drops, and brain identifiers.
-
-Example:
-
-export const MONSTER_DEFS = {
-  spider: {
-    faction: "wild",
-    health: 40,
-    moveSpeed: 2.2,
-    radius: 0.45,
-    height: 1.0,
-    attackRange: 1.4,
-    aggroRange: 10,
-    biomeTags: ["forest", "cave"],
-    drops: [{ id: "silk", chance: 0.5 }],
-    behaviorSet: ["wander", "edgeAvoidance", "chaseTarget", "meleeAttack"],
-    variants: ["normal", "cave", "venomous"]
-  }
-};
-spider.js, cow.js, wolf.js
-
-These should stay thin.
-
-They should only own species-specific code that cannot be described in data alone:
-
-special animation hooks
-
-unique attack timing
-
-unique senses
-
-special movement quirks
-
-unique sound hooks
-
-Do not let them become giant AI files.
-
-entities/behaviors/
-
-This is where monster intelligence becomes reusable.
-
-Your own notes strongly recommend behavior modules instead of one giant unique AI file per creature.
-
-idle.js
-
-Owns:
-
-doing nothing
-
-random pause state
-
-wander.js
-
-Owns:
-
-pick direction
-
-short movement bursts
-
-casual roaming
-
-chaseTarget.js
-
-Owns:
-
-moving toward a target
-
-pursuit timeout
-
-line-of-sight checks
-
-flee.js
-
-Owns:
-
-retreat logic
-
-fear-based movement
-
-herd/kid survival behavior
-
-meleeAttack.js
-
-Owns:
-
-close-range attack timing
-
-cooldown
-
-hit window
-
-rangedAttack.js
-
-Owns:
-
-projectile or beam launch intent
-
-distance checks
-
-cooldown hooks
-
-edgeAvoidance.js
-
-Owns:
-
-don’t walk off cliffs
-
-don’t fall into holes unless species allows it
-
-packFollow.js
-
-Owns:
-
-pack hierarchy following
-
-leader distance
-
-formation looseness
-
-herdProtect.js
-
-Owns:
-
-defend young
-
-group threat response
-
-This structure matches the ecosystem design direction where wolves, herds, elders, alphas, kids, and predators all need layered reusable roles instead of one-off scripts.
-
-combat/
-
-This subsystem should fully unify entities and voxel blocks.
-
-Your notes already call out the need for a single resolveAttack(...) path that tests entity hits and voxel hits together, compares nearest impact, and applies the result.
-
-combatSystem.js
-
-Owns:
-
-public combat API
-
-attack requests
-
-cooldown gates
-
-per-frame combat updates if needed
-
-attackResolver.js
-
-This is the key file.
-
-Owns:
-
-cast from origin/direction/range
-
-query both entities and blocks
-
-compare nearest hit
-
-return a normalized hit result
-
-trigger damage/break/effects
-
-Important API:
-
-resolveAttack({
-  attacker,
-  origin,
-  direction,
-  range,
-  attackData,
-  game
-})
-raycastEntities.js
-
-Owns:
-
-ray vs entity hit shapes
-
-filtering dead/non-attackable entities
-
-nearest entity hit result
-
-raycastBlocks.js
-
-Owns:
-
-wrapping blockWorld.traceRayAllHits()
-
-selecting the nearest valid solid block hit
-
-turning it into a normalized hit result
-
-damageSystem.js
-
-Owns:
-
-applying combat results to health
-
-hit reactions
-
-stagger later
-
-block HP reduction
-
-hitResults.js
-
-Defines standard result shape:
-
-{
-  type: "entity" | "block" | "none",
-  distance,
-  entityId,
-  blockPos,
-  point,
-  normal
-}
-combatTypes.js
-
-Defines attack data shapes for:
-
-melee
-
-beam
-
-spell burst
-
-piercing rays later
-
-This is especially useful because your long-term combat notes already include more advanced spell/ray ideas and clash mechanics.
-
-spawning/
-
-This subsystem is what will make “lots of monsters in different regions” manageable.
-
-Your notes explicitly call for a real spawn manager driven by player distance, region tags, biome data, local caps, and monster pools.
-
-spawnSystem.js
-
-Owns:
-
-periodic spawn evaluation
-
-region-based spawning
-
-despawn rules
-
-active population balancing
-
-spawnPools.js
-
-Owns:
-
-which species belong to which region
-
-weighted entries
-
-surface/cave/day/night pools later
-
-Example:
-
-forest: [
-  { species: "spider", weight: 20 },
-  { species: "wolf", weight: 10 },
-  { species: "deer", weight: 30 }
-]
-spawnBudget.js
-
-Owns:
-
-max population per chunk/region
-
-danger budget
-
-species cap
-
-anti-overcrowding
-
-This is essential if you want procedural creature density to stay sane.
-
-spawnRules.js
-
-Owns:
-
-validation rules like:
-
-must be surface
-
-must be cave
-
-not near player
-
-only in swamp
-
-only below Y level
-
-only in corruption > 0.5
-
-spawnLocations.js
-
-Owns:
-
-finding actual safe spawn points on terrain
-
-standable position checks
-
-spacing between spawns
-
-loot/
-dropSystem.js
-
-Owns:
-
-creating drops on death
-
-scatter position
-
-pickup creation later
-
-lootTables.js
-
-Owns:
-
-species drop definitions
-
-rarity
-
-biome modifiers later
-
-This should be data-driven alongside monster definitions.
-
-fx/
-beamVisuals.js
-
-Owns:
-
-attack beam rendering
-
-not damage logic
-
-floatingText.js
-
-Owns:
-
-damage numbers
-
-heal numbers
-
-status text
-
-deathEffects.js
-
-Owns:
-
-dissolve/despawn visuals
-
-particles later
-
-This is important because your current legacy world mixes gameplay ownership with beams and floating text. Those should move out into FX ownership.
-
-ui/
-hud.js
-
-Owns:
-
-health
-
-hotbar later
-
-target info
-
-crosshair
-
-healthBars.js
-
-Owns:
-
-world-space enemy bars
-
-on-screen bar drawing
-
-overlays.js
-
-Owns:
-
-menu overlays
-
-pause
-
-debug screens
-
-debugUI.js
-
-Owns:
-
-region display
-
-entity count
-
-spawn diagnostics
-
-selected target data
-
-player/
-playerController.js
-
-Owns:
-
-movement input intent
-
-camera-relative motion
-
-jump
-
-interact requests
-
-playerCombatAdapter.js
-
-Owns:
-
-turning player click input into combat requests
-
-feeding origin/direction/attackData into combatSystem
-
-playerStats.js
-
-Owns:
-
-player health/stamina/resource data later
-
-playerInventory.js
-
-Owns:
-
-held item
-
-selected slot
-
-item-driven attack type later
-
-Exact ownership boundaries
-
-These rules matter a lot.
-
-BlockWorld should not own:
-
-monster AI
-
-combat outcomes
-
-UI bars
-
-spawn populations
-
-It should answer world questions and mutate voxels.
-
-EntitySystem should not own:
-
-terrain generation
-
-chunk meshing
-
-player input
-
-attack ray origin rules
-
-It owns dynamic world objects.
-
-CombatSystem should not own:
-
-rendering beams
-
-entity storage
-
-biome data
-
-spawn caps
-
-It resolves attacks and damage.
-
-SpawnSystem should not own:
-
-pathfinding
-
-combat rules
-
-mesh rendering
-
-chunk meshing
-
-It decides what appears and where.
-
-That separation is the main thing that keeps the codebase scalable.
-
-The new entity contract
-
-This is the contract I’d use as the foundation:
-
-{
-  id: "ent_123",
-  kind: "monster",
-  species: "spider",
-  variant: "cave",
-  faction: "wild",
-  tags: ["hostile", "ground"],
-  position: new THREE.Vector3(),
-  velocity: new THREE.Vector3(),
-  radius: 0.45,
-  height: 1.0,
-  health: 40,
-  maxHealth: 40,
-  isDead: false,
-  canTakeDamage: true,
-  blocksAttack: true,
-  stats: {
-    moveSpeed: 2.2,
-    attackRange: 1.4,
-    aggroRange: 10
-  },
-  state: {
-    grounded: false,
-    aiState: "wander",
-    targetId: null,
-    hurtTimer: 0
-  },
-  brain: ["wander", "edgeAvoidance", "chaseTarget", "meleeAttack"],
-  sensors: {
-    sightRange: 10,
-    hearingRange: 14
-  },
-  mesh,
-  update(dt, game) {},
-  takeDamage(amount, source, context) {},
-  onDeath(game, context) {},
-  getHitShape() {},
-  getAnchorPosition() {}
-}
-
-That aligns closely with the shared entity format in your own Phase 3.5 notes.
-
-The scalable monster pipeline
-
-This is the content pipeline that will make large creature expansion manageable.
-
-Step 1: define species
-
-In monsterDefs.js.
-
-Step 2: choose region spawn pool
-
-In spawnPools.js.
-
-Step 3: roll variant
-
-In entityFactory.js.
-
-Step 4: instantiate shared entity
-
-Using the common entity contract.
-
-Step 5: attach behavior package
-
-From behavior modules.
-
-Step 6: let systems handle the rest
-
-movement from shared movement
-
-combat from shared combat
-
-death from shared damage/drop
-
-UI from shared bars/text
-
-That is how you get from “one spider test entity” to “dozens of monster species” without the project collapsing.
+```
+
+Faction system should support:
+- monsters attacking the player
+- monsters attacking rival factions
+- predator/prey relationships
+- territorial fighting
+- neutral wildlife that flees
+
+## Equipment / UI
+
+### Player Equipment
+
+Recommended slots:
+- weapon
+- offhand
+- head
+- chest
+- legs
+- accessory
+
+### UI Panels
+
+Needed UI:
+- HUD for health / stamina / active weapon
+- inventory panel
+- equipment paper-doll panel
+- tooltip / compare panel
+- loot pickup prompts
+
+Keep this data-driven so equipment changes are cheap and easy to expand.
+
+## Performance Rules
+
+These are the non-negotiables if the game is supposed to stay smooth.
+
+### Terrain
+- heightmap chunks only
+- rebuild touched chunks only
+- LOD aggressively
+- no whole-planet mesh rebuilds during gameplay
+
+### AI
+- active AI only near player
+- sleep or abstract distant AI
+- coarse nav graph, local steering up close
+
+### Ecosystem
+- offscreen simulation is statistical, not full actor simulation
+- spawn budgets per zone
+
+### Destruction
+- local crater updates only
+- clamp to shell
+- local nav rebuilds only
+
+### Ambient Life
+- birds, insects, wind FX, and river sounds should be proximity-based
+- use instancing and cheap loops
+
+## Recommended Implementation Order
+
+### Phase 1 - Foundation
+1. convert terrain model from shell-only voxels to shell + terrain height
+2. build terrain field and terrain chunk mesher
+3. preserve shell as immutable base
+
+### Phase 2 - Destruction
+1. add terrain deformation / crater system
+2. rebuild touched terrain chunks only
+3. add shell clamp rules
+
+### Phase 3 - Navigation
+1. build coarse surface nav graph
+2. add path queries
+3. move monsters to tangent-surface movement
+
+### Phase 4 - Spawning and Ecosystem
+1. add heatzones and biome-weighted spawn tables
+2. add spawn director
+3. add faction hostility and offscreen ecosystem simulation
+
+### Phase 5 - Living World
+1. birds in sky
+2. wind field and ambient FX
+3. river audio and environment sound cues
+
+### Phase 6 - Equipment and RPG Layer
+1. inventory data model
+2. equipment slots
+3. equipment UI
+4. item-based stat derivation
+
+## Final Recommendation
+
+The correct long-term architecture for Wiper Land is:
+- **cube-sphere globe**
+- **immutable shell**
+- **destructible heightmapped terrain above shell**
+- **surface-based AI navigation**
+- **heatzone spawning with lightweight ecosystem simulation**
+- **data-driven equipment UI and monster systems**
+
+This is the architecture most likely to give you:
+- good-looking terrain
+- crater destruction
+- decent monster AI
+- a world that feels alive
+- smooth performance as the project grows
