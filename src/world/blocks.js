@@ -3,6 +3,7 @@ export const BLOCK = Object.freeze({
   GRASS: 1,
   DIRT: 2,
   STONE: 3,
+  CLOUD: 4,
 })
 
 export const BLOCK_DEFS = Object.freeze({
@@ -43,6 +44,16 @@ export const BLOCK_DEFS = Object.freeze({
     regenerates: true,
     regenDelay: 100.0,
     hitPoints: 5,
+  },
+
+  [BLOCK.CLOUD]: {
+    id: BLOCK.CLOUD,
+    name: 'cloud',
+    solid: true,
+    destructible: true,
+    regenerates: false,
+    regenDelay: 0,
+    hitPoints: 3,
   },
 })
 

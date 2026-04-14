@@ -51,6 +51,23 @@ function world3Height(_bx, _bz) {
 }
 
 export const WORLD_PRESETS = Object.freeze({
+  // Globe world — terrain and chunk loading handled entirely by SphereWorld.
+  // This stub just registers the id so setActiveWorldPreset('globe') works
+  // and game.js can detect isGlobe = activePreset.id === 'globe'.
+  globe: {
+    id: 'globe',
+    label: 'Globe',
+    description: 'Hollow spherical shell world',
+    worldSize: 384,
+    getSurfaceHeightExact: () => 0,
+    getBlockId: () => BLOCK.AIR,
+    colors: {
+      grass: { r: 0.28, g: 0.62, b: 0.28 },
+      dirt:  { r: 0.44, g: 0.30, b: 0.20 },
+      stone: { r: 0.52, g: 0.52, b: 0.56 },
+    },
+    treeSettings: { forestRegions: [], treeCellSize: 8, foliageCellSize: 7 },
+  },
   world1: {
     id: 'world1',
     label: 'World 1',
@@ -143,7 +160,7 @@ export const WORLD_PRESETS = Object.freeze({
   },
 })
 
-let activeWorldId = 'world1'
+let activeWorldId = 'globe'
 
 export function setActiveWorldPreset(worldId) {
   if (!WORLD_PRESETS[worldId]) return
@@ -151,5 +168,5 @@ export function setActiveWorldPreset(worldId) {
 }
 
 export function getActiveWorldPreset() {
-  return WORLD_PRESETS[activeWorldId] ?? WORLD_PRESETS.world1
+  return WORLD_PRESETS[activeWorldId] ?? WORLD_PRESETS.globe
 }

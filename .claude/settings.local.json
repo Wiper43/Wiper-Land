@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /e/Wiper-Land/src -name \"*.js\" -type f -exec grep -l \"BlockWorld\\\\|createScene\\\\|scene.*add\" {} \\\\;)",
+      "Bash(npm run:*)",
+      "Bash(curl -s http://localhost:5173)"
+    ]
+  }
+}

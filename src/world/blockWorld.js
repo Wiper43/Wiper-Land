@@ -94,8 +94,10 @@ export class BlockWorld {
     return isSolidBlockId(this.getBlockId(x, y, z))
   }
 
-  isSolidBlock(bx, by, bz) {
-    return isSolidBlockId(this.getBlockId(bx, by, bz))
+  isSolidBlock(faceIdxOrBx, bxOrBy, byOrBz, bz) {
+    // Accept either (bx, by, bz) or (faceIdx, bx, by, bz) — faceIdx is ignored here.
+    if (bz !== undefined) return isSolidBlockId(this.getBlockId(bxOrBy, byOrBz, bz))
+    return isSolidBlockId(this.getBlockId(faceIdxOrBx, bxOrBy, byOrBz))
   }
 
   getSkyLightAt(bx, by, bz) {
@@ -209,7 +211,11 @@ export class BlockWorld {
     }
   }
 
-  breakBlock(bx, by, bz) {
+  breakBlock(faceIdxOrBx, bxOrBy, byOrBz, bz) {
+    // Accept either (bx, by, bz) or (faceIdx, bx, by, bz) — faceIdx is ignored here.
+    let bx, by
+    if (bz !== undefined) { bx = bxOrBy;  by = byOrBz }
+    else                  { bx = faceIdxOrBx; by = bxOrBy; bz = byOrBz }
     const { cx, cy, cz } = blockToChunk(bx, by, bz)
     const chunk = this.getChunk(cx, cy, cz)
     if (!chunk) return false

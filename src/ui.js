@@ -1,9 +1,9 @@
-import { getSurfaceHeightExact } from './world/terrain.js'
-import { getActiveWorldPreset } from './world/worldPresets.js'
+import { worldToBlock } from './world/sphere/cubeSphereCoords.js'
+import { getApproxEarthSurfaceColor } from './world/sphere/earthAppearance.js'
 
 export function createUI() {
-  const MAP_WORLD_SIZE = getActiveWorldPreset().worldSize ?? 384
-  const MAP_HALF_SIZE = MAP_WORLD_SIZE / 2
+  const MAP_WIDTH = 1024
+  const MAP_HEIGHT = 512
 
   // ============================================================
   // ROOT UI LAYER
@@ -58,6 +58,99 @@ export function createUI() {
   hint.style.textShadow = '0 0 4px rgba(0,0,0,0.9)'
   hint.textContent = ''
   root.appendChild(hint)
+
+  const compass = document.createElement('div')
+  compass.style.position = 'absolute'
+  compass.style.left = '50%'
+  compass.style.top = '18px'
+  compass.style.transform = 'translateX(-50%)'
+  compass.style.width = '220px'
+  compass.style.height = '56px'
+  compass.style.borderRadius = '999px'
+  compass.style.background = 'rgba(0,0,0,0.56)'
+  compass.style.border = '1px solid rgba(255,255,255,0.18)'
+  compass.style.boxShadow = '0 10px 22px rgba(0,0,0,0.25)'
+  compass.style.backdropFilter = 'blur(4px)'
+  root.appendChild(compass)
+
+  const compassDial = document.createElement('div')
+  compassDial.style.position = 'absolute'
+  compassDial.style.inset = '0'
+  compass.appendChild(compassDial)
+
+  const compassLabelNorth = document.createElement('div')
+  compassLabelNorth.textContent = 'N'
+  compassLabelNorth.style.position = 'absolute'
+  compassLabelNorth.style.left = '50%'
+  compassLabelNorth.style.top = '5px'
+  compassLabelNorth.style.transform = 'translateX(-50%)'
+  compassLabelNorth.style.fontFamily = 'sans-serif'
+  compassLabelNorth.style.fontWeight = '800'
+  compassLabelNorth.style.fontSize = '12px'
+  compassLabelNorth.style.letterSpacing = '1px'
+  compassLabelNorth.style.color = '#ff5a5a'
+  compassDial.appendChild(compassLabelNorth)
+
+  const compassLabelSouth = document.createElement('div')
+  compassLabelSouth.textContent = 'S'
+  compassLabelSouth.style.position = 'absolute'
+  compassLabelSouth.style.left = '50%'
+  compassLabelSouth.style.bottom = '5px'
+  compassLabelSouth.style.transform = 'translateX(-50%)'
+  compassLabelSouth.style.fontFamily = 'sans-serif'
+  compassLabelSouth.style.fontWeight = '800'
+  compassLabelSouth.style.fontSize = '12px'
+  compassLabelSouth.style.letterSpacing = '1px'
+  compassLabelSouth.style.color = '#ffffff'
+  compassDial.appendChild(compassLabelSouth)
+
+  const compassNeedle = document.createElement('div')
+  compassNeedle.style.position = 'absolute'
+  compassNeedle.style.left = '50%'
+  compassNeedle.style.top = '50%'
+  compassNeedle.style.width = '4px'
+  compassNeedle.style.height = '24px'
+  compassNeedle.style.transform = 'translate(-50%, -50%) rotate(0deg)'
+  compassNeedle.style.transformOrigin = '50% 50%'
+  compassDial.appendChild(compassNeedle)
+
+  const compassNorthTip = document.createElement('div')
+  compassNorthTip.style.position = 'absolute'
+  compassNorthTip.style.left = '50%'
+  compassNorthTip.style.top = '0'
+  compassNorthTip.style.width = '0'
+  compassNorthTip.style.height = '0'
+  compassNorthTip.style.transform = 'translateX(-50%)'
+  compassNorthTip.style.borderLeft = '7px solid transparent'
+  compassNorthTip.style.borderRight = '7px solid transparent'
+  compassNorthTip.style.borderBottom = '14px solid #ff4d4d'
+  compassNorthTip.style.filter = 'drop-shadow(0 0 8px rgba(255,77,77,0.55))'
+  compassNeedle.appendChild(compassNorthTip)
+
+  const compassSouthTip = document.createElement('div')
+  compassSouthTip.style.position = 'absolute'
+  compassSouthTip.style.left = '50%'
+  compassSouthTip.style.bottom = '0'
+  compassSouthTip.style.width = '0'
+  compassSouthTip.style.height = '0'
+  compassSouthTip.style.transform = 'translateX(-50%)'
+  compassSouthTip.style.borderLeft = '7px solid transparent'
+  compassSouthTip.style.borderRight = '7px solid transparent'
+  compassSouthTip.style.borderTop = '14px solid #f7fbff'
+  compassSouthTip.style.filter = 'drop-shadow(0 0 8px rgba(247,251,255,0.55))'
+  compassNeedle.appendChild(compassSouthTip)
+
+  const compassCenter = document.createElement('div')
+  compassCenter.style.position = 'absolute'
+  compassCenter.style.left = '50%'
+  compassCenter.style.top = '50%'
+  compassCenter.style.width = '8px'
+  compassCenter.style.height = '8px'
+  compassCenter.style.borderRadius = '50%'
+  compassCenter.style.transform = 'translate(-50%, -50%)'
+  compassCenter.style.background = '#f7f9ff'
+  compassCenter.style.boxShadow = '0 0 8px rgba(255,255,255,0.45)'
+  compassDial.appendChild(compassCenter)
 
   const fireBombMeter = document.createElement('div')
   fireBombMeter.style.position = 'absolute'
@@ -352,7 +445,7 @@ root.appendChild(spellbookHolder)
   // ============================================================
   // WORLD MAP
   // ------------------------------------------------------------
-  // Toggle with M. Shows the 384x384 world with a player marker.
+  // Toggle with M. Shows an equirectangular globe map.
   // ============================================================
   const mapOverlay = document.createElement('div')
   mapOverlay.style.position = 'absolute'
@@ -372,7 +465,7 @@ root.appendChild(spellbookHolder)
   root.appendChild(mapOverlay)
 
   const mapTitle = document.createElement('div')
-  mapTitle.textContent = 'World Map'
+  mapTitle.textContent = 'Globe Map'
   mapTitle.style.position = 'absolute'
   mapTitle.style.left = '24px'
   mapTitle.style.top = '18px'
@@ -384,7 +477,7 @@ root.appendChild(spellbookHolder)
   mapOverlay.appendChild(mapTitle)
 
   const mapSubtitle = document.createElement('div')
-  mapSubtitle.textContent = `${MAP_WORLD_SIZE} x ${MAP_WORLD_SIZE}`
+  mapSubtitle.textContent = 'Approximate Earth continents with oceans, deserts, forests, and polar ice'
   mapSubtitle.style.position = 'absolute'
   mapSubtitle.style.left = '24px'
   mapSubtitle.style.top = '50px'
@@ -407,8 +500,8 @@ root.appendChild(spellbookHolder)
   mapOverlay.appendChild(mapFrame)
 
   const mapCanvas = document.createElement('canvas')
-  mapCanvas.width = MAP_WORLD_SIZE
-  mapCanvas.height = MAP_WORLD_SIZE
+  mapCanvas.width = MAP_WIDTH
+  mapCanvas.height = MAP_HEIGHT
   mapCanvas.style.position = 'absolute'
   mapCanvas.style.inset = '0'
   mapCanvas.style.width = '100%'
@@ -418,7 +511,7 @@ root.appendChild(spellbookHolder)
   mapFrame.appendChild(mapCanvas)
 
   const mapAxisX = document.createElement('div')
-  mapAxisX.textContent = 'X'
+  mapAxisX.textContent = 'Longitude'
   mapAxisX.style.position = 'absolute'
   mapAxisX.style.left = '50%'
   mapAxisX.style.bottom = '18px'
@@ -431,7 +524,7 @@ root.appendChild(spellbookHolder)
   mapOverlay.appendChild(mapAxisX)
 
   const mapAxisY = document.createElement('div')
-  mapAxisY.textContent = 'Y'
+  mapAxisY.textContent = 'Latitude'
   mapAxisY.style.position = 'absolute'
   mapAxisY.style.left = '20px'
   mapAxisY.style.top = '50%'
@@ -444,11 +537,11 @@ root.appendChild(spellbookHolder)
   mapOverlay.appendChild(mapAxisY)
 
   const axisTicks = [
-    { value: 192, left: '0%', top: '0%' },
-    { value: 96, left: '25%', top: '25%' },
+    { value: -180, left: '0%', top: '100%' },
+    { value: -90, left: '25%', top: '75%' },
     { value: 0, left: '50%', top: '50%' },
-    { value: -96, left: '75%', top: '75%' },
-    { value: -192, left: '100%', top: '100%' },
+    { value: 90, left: '75%', top: '25%' },
+    { value: 180, left: '100%', top: '0%' },
   ]
 
   for (const tick of axisTicks) {
@@ -549,7 +642,7 @@ root.appendChild(spellbookHolder)
   let spellbookOpen = false
   let mapOpen = false
 
-  drawTopographicMap(mapCanvas, MAP_WORLD_SIZE, MAP_HALF_SIZE)
+  drawGlobeMap(mapCanvas)
 
   optionsButton.addEventListener('click', () => {
     optionsOpen = !optionsOpen
@@ -747,16 +840,25 @@ root.appendChild(spellbookHolder)
   function updateMapPlayerPosition(position, direction = null) {
     if (!position) return
 
-    const normalizedX = clamp((position.x + MAP_HALF_SIZE) / MAP_WORLD_SIZE, 0, 1)
-    const normalizedY = clamp((position.z + MAP_HALF_SIZE) / MAP_WORLD_SIZE, 0, 1)
+    const radius = Math.max(0.0001, Math.hypot(position.x, position.y, position.z))
+    const latitude = Math.asin(clamp(position.y / radius, -1, 1)) * (180 / Math.PI)
+    const longitude = Math.atan2(position.z, position.x) * (180 / Math.PI)
+    const normalizedX = (longitude + 180) / 360
+    const normalizedY = 1 - ((latitude + 90) / 180)
+    const blockPos = worldToBlock(position)
 
-    playerMarker.style.left = `${normalizedX * 100}%`
-    playerMarker.style.top = `${normalizedY * 100}%`
+    playerMarker.style.left = `${clamp(normalizedX, 0, 1) * 100}%`
+    playerMarker.style.top = `${clamp(normalizedY, 0, 1) * 100}%`
     if (direction) {
       const angleDeg = Math.atan2(direction.z, direction.x) * (180 / Math.PI)
       playerMarker.style.transform = `translate(-50%, -50%) rotate(${angleDeg}deg)`
     }
-    mapCoords.textContent = `X: ${position.x.toFixed(1)}\nY: ${(-position.z).toFixed(1)}\nZ: ${position.y.toFixed(1)}`
+    mapCoords.textContent =
+      `Lat: ${latitude.toFixed(2)}\n` +
+      `Lon: ${longitude.toFixed(2)}\n` +
+      `Face: ${blockPos.faceIdx}\n` +
+      `bx/by: ${blockPos.bx}, ${blockPos.by}\n` +
+      `X/Y/Z: ${position.x.toFixed(1)}, ${position.y.toFixed(1)}, ${position.z.toFixed(1)}`
     mapCoords.style.whiteSpace = 'pre-line'
   }
 
@@ -767,6 +869,53 @@ root.appendChild(spellbookHolder)
       ? 'linear-gradient(90deg, #ffd36b, #fff4b2)'
       : 'linear-gradient(90deg, #ff8b3d, #ffd36b)'
     fireBombLabel.textContent = charged ? 'Fire Bomb Charged' : 'Fire Bomb Charging'
+  }
+
+  function updateCompass(playerPosition, cameraDirection) {
+    if (!playerPosition || !cameraDirection) return
+
+    const radius = Math.max(0.0001, Math.hypot(playerPosition.x, playerPosition.y, playerPosition.z))
+    const upX = playerPosition.x / radius
+    const upY = playerPosition.y / radius
+    const upZ = playerPosition.z / radius
+
+    const northPoleX = 0
+    const northPoleY = 1
+    const northPoleZ = 0
+
+    let northX = northPoleX - upX * (northPoleX * upX + northPoleY * upY + northPoleZ * upZ)
+    let northY = northPoleY - upY * (northPoleX * upX + northPoleY * upY + northPoleZ * upZ)
+    let northZ = northPoleZ - upZ * (northPoleX * upX + northPoleY * upY + northPoleZ * upZ)
+
+    const northLen = Math.hypot(northX, northY, northZ)
+    if (northLen < 0.0001) {
+      compassNeedle.style.opacity = '0.2'
+      return
+    }
+
+    compassNeedle.style.opacity = '1'
+    northX /= northLen
+    northY /= northLen
+    northZ /= northLen
+
+    let forwardX = cameraDirection.x - upX * (cameraDirection.x * upX + cameraDirection.y * upY + cameraDirection.z * upZ)
+    let forwardY = cameraDirection.y - upY * (cameraDirection.x * upX + cameraDirection.y * upY + cameraDirection.z * upZ)
+    let forwardZ = cameraDirection.z - upZ * (cameraDirection.x * upX + cameraDirection.y * upY + cameraDirection.z * upZ)
+
+    const forwardLen = Math.max(0.0001, Math.hypot(forwardX, forwardY, forwardZ))
+    forwardX /= forwardLen
+    forwardY /= forwardLen
+    forwardZ /= forwardLen
+
+    const eastX = northY * upZ - northZ * upY
+    const eastY = northZ * upX - northX * upZ
+    const eastZ = northX * upY - northY * upX
+
+    const dotNorth = clamp(forwardX * northX + forwardY * northY + forwardZ * northZ, -1, 1)
+    const dotEast = clamp(forwardX * eastX + forwardY * eastY + forwardZ * eastZ, -1, 1)
+    const angleDeg = Math.atan2(dotEast, dotNorth) * (180 / Math.PI)
+
+    compassNeedle.style.transform = `translate(-50%, -50%) rotate(${angleDeg}deg)`
   }
 
   return {
@@ -788,6 +937,7 @@ root.appendChild(spellbookHolder)
 
     setCowVolume,
     setFireBombCharge,
+    updateCompass,
     updateMapPlayerPosition,
 
     onCowVolumeChange(callback) {
@@ -829,185 +979,58 @@ function stylePanel(panel) {
   panel.style.boxShadow = '0 8px 18px rgba(0,0,0,0.35)'
 }
 
-function drawTopographicMap(canvas, worldSize, worldHalfSize) {
+function drawGlobeMap(canvas) {
   const context = canvas.getContext('2d')
   if (!context) return
 
-  const heights = []
-  let minHeight = Infinity
-  let maxHeight = -Infinity
+  const width = canvas.width
+  const height = canvas.height
+  const image = context.createImageData(width, height)
 
-  for (let y = 0; y < worldSize; y++) {
-    const row = []
-    const bz = y - worldHalfSize
+  for (let y = 0; y < height; y++) {
+    const v = y / (height - 1)
+    const latitude = 90 - v * 180
+    const latNorm = latitude / 90
 
-    for (let x = 0; x < worldSize; x++) {
-      const bx = x - worldHalfSize
-      const height = getSurfaceHeightExact(bx, bz)
-      row.push(height)
-      minHeight = Math.min(minHeight, height)
-      maxHeight = Math.max(maxHeight, height)
-    }
+    for (let x = 0; x < width; x++) {
+      const index = (y * width + x) * 4
+      const longitude = (x / (width - 1)) * 360 - 180
+      const color = getApproxEarthSurfaceColor(latitude, longitude)
 
-    heights.push(row)
-  }
-
-  const image = context.createImageData(worldSize, worldSize)
-
-  for (let y = 0; y < worldSize; y++) {
-    for (let x = 0; x < worldSize; x++) {
-      const height = heights[y][x]
-      const normalized = (height - minHeight) / Math.max(1, maxHeight - minHeight)
-
-      let red = 245
-      let green = 240
-      let blue = 230
-
-      if (normalized < 0.16) {
-        red = 184
-        green = 215
-        blue = 221
-      } else if (normalized < 0.3) {
-        red = 213
-        green = 227
-        blue = 194
-      } else if (normalized < 0.58) {
-        red = 232
-        green = 226
-        blue = 210
-      } else {
-        red = 222 - normalized * 32
-        green = 214 - normalized * 36
-        blue = 206 - normalized * 38
-      }
-
-      const left = x > 0 ? heights[y][x - 1] : height
-      const right = x < worldSize - 1 ? heights[y][x + 1] : height
-      const up = y > 0 ? heights[y - 1][x] : height
-      const down = y < worldSize - 1 ? heights[y + 1][x] : height
-      const slope = Math.abs(right - left) + Math.abs(down - up)
-
-      const shade = slope * 8
-      red = Math.max(0, red - shade)
-      green = Math.max(0, green - shade)
-      blue = Math.max(0, blue - shade)
-
-      const index = (y * worldSize + x) * 4
-      image.data[index] = red
-      image.data[index + 1] = green
-      image.data[index + 2] = blue
+      image.data[index] = Math.round(color.r * 255)
+      image.data[index + 1] = Math.round(color.g * 255)
+      image.data[index + 2] = Math.round(color.b * 255)
       image.data[index + 3] = 255
     }
   }
 
   context.putImageData(image, 0, 0)
 
-  drawContourSet(context, heights, worldSize, minHeight, maxHeight, 0.8, 'rgba(118, 91, 70, 0.55)', 0.75)
-  drawContourSet(context, heights, worldSize, minHeight, maxHeight, 3.2, 'rgba(92, 68, 50, 0.78)', 1.25)
-  drawContourLabels(context, heights, worldSize, minHeight, maxHeight, 6.4)
-
   context.save()
-  context.strokeStyle = 'rgba(120, 98, 78, 0.35)'
-  context.lineWidth = 0.6
-  const gridStep = worldSize / 4
-  for (let offset = gridStep; offset < worldSize; offset += gridStep) {
+  context.strokeStyle = 'rgba(255,255,255,0.26)'
+  context.lineWidth = 1
+
+  const lonStep = width / 4
+  for (let offset = lonStep; offset < width; offset += lonStep) {
     context.beginPath()
     context.moveTo(offset + 0.5, 0)
-    context.lineTo(offset + 0.5, worldSize)
+    context.lineTo(offset + 0.5, height)
     context.stroke()
+  }
 
+  const latStep = height / 4
+  for (let offset = latStep; offset < height; offset += latStep) {
     context.beginPath()
     context.moveTo(0, offset + 0.5)
-    context.lineTo(worldSize, offset + 0.5)
+    context.lineTo(width, offset + 0.5)
     context.stroke()
   }
-  context.restore()
-}
 
-function drawContourSet(context, heights, size, minHeight, maxHeight, step, strokeStyle, lineWidth) {
-  context.save()
-  context.strokeStyle = strokeStyle
-  context.lineWidth = lineWidth
-  context.lineJoin = 'round'
-  context.lineCap = 'round'
-
-  const startLevel = Math.ceil(minHeight / step) * step
-  for (let level = startLevel; level <= maxHeight; level += step) {
-    for (let y = 0; y < size - 1; y++) {
-      for (let x = 0; x < size - 1; x++) {
-        traceContourCell(context, heights, x, y, level)
-      }
-    }
-  }
-
-  context.restore()
-}
-
-function traceContourCell(context, heights, x, y, level) {
-  const tl = heights[y][x]
-  const tr = heights[y][x + 1]
-  const br = heights[y + 1][x + 1]
-  const bl = heights[y + 1][x]
-
-  const points = []
-
-  addContourPoint(points, level, tl, tr, x, y, x + 1, y)
-  addContourPoint(points, level, tr, br, x + 1, y, x + 1, y + 1)
-  addContourPoint(points, level, br, bl, x + 1, y + 1, x, y + 1)
-  addContourPoint(points, level, bl, tl, x, y + 1, x, y)
-
-  if (points.length < 2) return
-
-  if (points.length === 2) {
-    context.beginPath()
-    context.moveTo(points[0].x, points[0].y)
-    context.lineTo(points[1].x, points[1].y)
-    context.stroke()
-    return
-  }
-
-  if (points.length === 4) {
-    context.beginPath()
-    context.moveTo(points[0].x, points[0].y)
-    context.lineTo(points[1].x, points[1].y)
-    context.stroke()
-
-    context.beginPath()
-    context.moveTo(points[2].x, points[2].y)
-    context.lineTo(points[3].x, points[3].y)
-    context.stroke()
-  }
-}
-
-function addContourPoint(points, level, a, b, ax, ay, bx, by) {
-  const aAbove = a >= level
-  const bAbove = b >= level
-  if (aAbove === bAbove || a === b) return
-
-  const t = (level - a) / (b - a)
-  points.push({
-    x: ax + (bx - ax) * t,
-    y: ay + (by - ay) * t,
-  })
-}
-
-function drawContourLabels(context, heights, size, minHeight, maxHeight, step) {
-  context.save()
-  context.fillStyle = 'rgba(110, 84, 62, 0.9)'
-  context.font = '10px monospace'
-
-  const columns = [24, 72, 120, 160]
-  const rows = [28, 78, 128, 168]
-
-  for (const y of rows) {
-    for (const x of columns) {
-      if (x < 0 || x >= size || y < 0 || y >= size) continue
-      const height = heights[y][x]
-      const snapped = Math.round(height / step) * step
-      if (snapped < minHeight || snapped > maxHeight) continue
-      context.fillText(String(Math.round(snapped * 100)), x + 2, y - 2)
-    }
-  }
-
+  context.strokeStyle = 'rgba(54, 96, 165, 0.58)'
+  context.lineWidth = 2
+  context.beginPath()
+  context.moveTo(0, height * 0.5 + 0.5)
+  context.lineTo(width, height * 0.5 + 0.5)
+  context.stroke()
   context.restore()
 }

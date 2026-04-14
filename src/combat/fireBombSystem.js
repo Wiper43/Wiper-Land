@@ -23,7 +23,9 @@ export function createFireBombSystem(game) {
       chargeTime = Math.min(FIRE_BOMB_CHARGE_TIME, chargeTime + deltaTime)
     }
 
-    if (released && chargeTime > 0.02) {
+    if (released) {
+      // Fire on any release, including fast clicks (sub-frame taps).
+      // chargeTime === 0 means an uncharged base-power shot.
       launchBomb(chargeTime >= FIRE_BOMB_CHARGE_TIME - 0.001)
       chargeTime = 0
     } else if (!holding) {

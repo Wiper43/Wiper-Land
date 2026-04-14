@@ -11,6 +11,7 @@ export function createInput(canvas) {
     right: false,
     jump: false,
     descend: false,
+    coreward: false,   // X — fly toward core (sphere fly mode)
   }
 
   // ============================================================
@@ -98,6 +99,9 @@ export function createInput(canvas) {
       case 'KeyF':
         toggleFly = true
         break
+      case 'KeyX':
+        keys.coreward = true
+        break
     }
   })
 
@@ -121,6 +125,9 @@ export function createInput(canvas) {
       case 'ShiftLeft':
       case 'ShiftRight':
         keys.descend = false
+        break
+      case 'KeyX':
+        keys.coreward = false
         break
     }
   })

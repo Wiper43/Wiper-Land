@@ -61,6 +61,34 @@ export function canMoveTo(colliders, entityCollider, targetPosition, halfSize, y
 export function applyGravityAndGrounding(entity, deltaTime, blockWorld, halfX = 0.4, halfZ = 0.4) {
   const GRAVITY = 20
 
+  // ── Sphere world: radial gravity ────────────────────────────
+  if (blockWorld?.getLocalFrame) {
+    const pos = entity.mesh.position
+    const up = blockWorld.getRadialUp(pos)
+
+    // Apply gravity toward core
+    entity.velocity.x -= up.x * GRAVITY * deltaTime
+    entity.velocity.y -= up.y * GRAVITY * deltaTime
+    entity.velocity.z -= up.z * GRAVITY * deltaTime
+
+    const nextPos = pos.clone().addScaledVector(entity.velocity, deltaTime)
+    const feetSample = nextPos.clone().addScaledVector(up.negate(), 0.3)
+    const gBlock = blockWorld.worldToBlock(feetSample)
+
+    if (blockWorld.isSolidBlock(gBlock.faceIdx, gBlock.bx, gBlock.by, gBlock.bz)) {
+      const surfR = blockWorld.getSurfaceRadiusAt(feetSample)
+      const snapUp = blockWorld.getRadialUp(nextPos)
+      pos.copy(snapUp).multiplyScalar(surfR)
+      entity.velocity.set(0, 0, 0)
+      entity.grounded = true
+    } else {
+      pos.copy(nextPos)
+      entity.grounded = false
+    }
+    return
+  }
+
+  // ── Flat world: Y-axis gravity ───────────────────────────────
   entity.velocity.y -= GRAVITY * deltaTime
 
   const nextY = entity.mesh.position.y + entity.velocity.y * deltaTime
