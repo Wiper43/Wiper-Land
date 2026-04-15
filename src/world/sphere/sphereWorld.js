@@ -20,11 +20,13 @@ import {
   isChunkDirty,
   queueChunkRegen,
   removeChunkRegenAt,
+  setChunkStorageMode,
 } from '../chunk.js'
 import {
   SPHERE_RADIUS,
   LAYER_SCALE,
   SHELL_DEPTH,
+  TERRAIN_MIN_BZ,
   NUM_FACES,
   blockToWorld,
   worldToBlock,
@@ -36,17 +38,14 @@ import {
 import {
   FACE_CHUNKS,
   DEP_CHUNKS,
+  TERRAIN_MIN_CHUNK,
   blockToFaceChunk,
   blockToFaceLocal,
   getFaceChunkKey,
 } from './cubeSphereChunkMath.js'
-import { SPHERE_PRESET } from './spherePresets.js'
+import { getColumnProfile, SPHERE_PRESET } from './spherePresets.js'
 import { buildSphereChunkMesh, createSphereBlockMaterial } from './sphereMesher.js'
-
-const CLOUD_BZ_MIN = -60
-const CLOUD_BZ_MAX = -40
-const CLOUD_CDEP_MIN = floorDiv(CLOUD_BZ_MIN, CHUNK_SIZE)
-const CLOUD_CDEP_MAX = floorDiv(CLOUD_BZ_MAX, CHUNK_SIZE)
+import { buildSurfaceTileMesh, getSurfaceTileKey } from './surfaceTileMesher.js'
 
 export class SphereWorld {
   constructor(scene) {
@@ -57,12 +56,20 @@ export class SphereWorld {
     this.scene.add(this.group)
 
     this.chunks = new Map()
+    this.surfaceTiles = new Map()
+    this.pendingSurfaceLoads = []
+    this.pendingPromotionLoads = []
+    this.pendingChunkLoadMap = new Map()
+    this.surfaceGlobeQueued = false
     this.material = createSphereBlockMaterial()
 
     this.loadWholeGlobe = true
-    this.loadedRadius = 8
-    this.unloadRadius = this.loadedRadius + 2
-    this.maxChunkRebuildsPerFrame = 64
+    this.loadRadiusWorld = 400
+    this.unloadRadiusWorld = 460
+    this.fullSolidRadiusWorld = 100
+    this.maxChunkLoadsPerFrame = 4
+    this.maxSurfaceTileLoadsPerFrame = 24
+    this.maxChunkRebuildsPerFrame = 8
     this.maxRegensPerFrame = 8
     this.regenRetryDelay = 1.0
     this.regenRetryJitter = 0.5
@@ -88,7 +95,12 @@ export class SphereWorld {
 
     const { cx, cy, cdep } = blockToFaceChunk(wFace, wBx, wBy, bz)
     const chunk = this.getChunk(wFace, cx, cy, cdep)
-    if (!chunk) return BLOCK.AIR
+    if (!chunk) {
+      if (bz >= TERRAIN_MIN_BZ && bz < SHELL_DEPTH) {
+        return SPHERE_PRESET.getBlockId(wFace, wBx, wBy, bz)
+      }
+      return BLOCK.AIR
+    }
 
     const { lx, ly, lz } = blockToFaceLocal(wBx, wBy, bz)
     return getChunkBlock(chunk, lx, ly, lz)
@@ -122,13 +134,18 @@ export class SphereWorld {
     return worldToBlock(worldPos)
   }
 
+  blockToWorld(faceIdx, bx, by, bz) {
+    const wrapped = wrapBlockCoords(faceIdx, bx, by)
+    return blockToWorld(wrapped.faceIdx, wrapped.bx, wrapped.by, bz)
+  }
+
   getLocalFrame(worldPos) {
     return getLocalFrame(worldPos)
   }
 
   getSurfaceRadiusAt(worldPos) {
     const r0 = worldPos.length()
-    const startBz = Math.max(0, Math.floor((SPHERE_RADIUS - r0) / LAYER_SCALE) - 2)
+    const startBz = Math.max(TERRAIN_MIN_BZ, Math.floor((SPHERE_RADIUS - r0) / LAYER_SCALE) - 2)
     const { faceIdx, bx, by } = worldToBlock(worldPos)
 
     for (let bz = startBz; bz < SHELL_DEPTH; bz++) {
@@ -157,19 +174,35 @@ export class SphereWorld {
     return THREE.MathUtils.clamp(openDist / 8, 0.08, 1)
   }
 
-  ensureChunk(faceIdx, cx, cy, cdep) {
+  ensureChunk(faceIdx, cx, cy, cdep, generationMode = 'surface') {
     if (cx < 0 || cx >= FACE_CHUNKS) return null
     if (cy < 0 || cy >= FACE_CHUNKS) return null
     if (!this.isSupportedChunkDepth(cdep)) return null
 
     const key = getFaceChunkKey(faceIdx, cx, cy, cdep)
     let chunk = this.chunks.get(key)
-    if (chunk) return chunk
+    const targetStorageMode = generationMode === 'full' ? 'dense' : 'sparse'
+    if (chunk) {
+      if (chunk.generationMode === 'full' && generationMode === 'surface') return chunk
+      if (chunk.generationMode === generationMode && chunk.storageMode === targetStorageMode) return chunk
 
-    chunk = createChunk(cx, cy, cdep)
+      setChunkStorageMode(
+        chunk,
+        targetStorageMode,
+        (bx, by, bz) => this.getGeneratedBlockId(faceIdx, bx, by, bz, generationMode),
+      )
+      chunk.generationMode = generationMode
+      return chunk
+    }
+
+    chunk = createChunk(cx, cy, cdep, targetStorageMode)
     chunk.faceIdx = faceIdx
+    chunk.generationMode = generationMode
 
-    fillChunkFromGenerator(chunk, (bx, by, bz) => this.getGeneratedBlockId(faceIdx, bx, by, bz))
+    fillChunkFromGenerator(
+      chunk,
+      (bx, by, bz) => this.getGeneratedBlockId(faceIdx, bx, by, bz, generationMode),
+    )
 
     this.chunks.set(key, chunk)
     return chunk
@@ -181,26 +214,24 @@ export class SphereWorld {
 
   update(deltaTime, player) {
     this.updateLoadedChunksAroundPlayer(player)
+    this.processPendingChunkLoads()
     this.updateRegeneration(deltaTime, player)
     this.rebuildDirtyChunks()
   }
 
   async generateAllChunks(onProgress) {
-    const depths = this.getChunkDepths()
-    const total = NUM_FACES * FACE_CHUNKS * FACE_CHUNKS * depths.length
+    const total = NUM_FACES * FACE_CHUNKS * FACE_CHUNKS
     let done = 0
     const batch = 32
 
     for (let f = 0; f < NUM_FACES; f++) {
       for (let cx = 0; cx < FACE_CHUNKS; cx++) {
         for (let cy = 0; cy < FACE_CHUNKS; cy++) {
-          for (const cdep of depths) {
-            this.ensureChunk(f, cx, cy, cdep)
-            done++
-            if (done % batch === 0) {
-              onProgress?.(done / total)
-              await new Promise((resolve) => setTimeout(resolve, 0))
-            }
+          this.ensureSurfaceTile(f, cx, cy)
+          done++
+          if (done % batch === 0) {
+            onProgress?.(done / total)
+            await new Promise((resolve) => setTimeout(resolve, 0))
           }
         }
       }
@@ -245,66 +276,185 @@ export class SphereWorld {
     const depths = this.getChunkDepths()
 
     if (this.loadWholeGlobe) {
-      for (let faceIdx = 0; faceIdx < NUM_FACES; faceIdx++) {
-        for (let cx = 0; cx < FACE_CHUNKS; cx++) {
-          for (let cy = 0; cy < FACE_CHUNKS; cy++) {
-            for (const cdep of depths) {
-              this.ensureChunk(faceIdx, cx, cy, cdep)
+      if (!this.surfaceGlobeQueued) {
+        const surfaceRecords = []
+        for (let faceIdx = 0; faceIdx < NUM_FACES; faceIdx++) {
+          for (let cx = 0; cx < FACE_CHUNKS; cx++) {
+            for (let cy = 0; cy < FACE_CHUNKS; cy++) {
+              const centerBx = cx * CHUNK_SIZE + Math.floor(CHUNK_SIZE * 0.5)
+              const centerBy = cy * CHUNK_SIZE + Math.floor(CHUNK_SIZE * 0.5)
+              const chunkCenter = blockToWorld(faceIdx, centerBx, centerBy, 0)
+              surfaceRecords.push({
+                faceIdx,
+                cx,
+                cy,
+                distanceSq: chunkCenter.distanceToSquared(player.position),
+              })
             }
           }
         }
-      }
-      return
-    }
 
-    const { faceIdx, bx, by } = worldToBlock(player.position)
-    const { cx: centerCx, cy: centerCy } = blockToFaceChunk(faceIdx, bx, by, 0)
-    const radius = this.loadedRadius
-
-    for (let dcx = -radius; dcx <= radius; dcx++) {
-      for (let dcy = -radius; dcy <= radius; dcy++) {
-        const rawCx = centerCx + dcx
-        const rawCy = centerCy + dcy
-
-        let targetFace = faceIdx
-        let tcx = rawCx
-        let tcy = rawCy
-
-        if (rawCx < 0 || rawCx >= FACE_CHUNKS || rawCy < 0 || rawCy >= FACE_CHUNKS) {
-          const originBx = rawCx * CHUNK_SIZE
-          const originBy = rawCy * CHUNK_SIZE
-          const wrapped = wrapBlockCoords(faceIdx, originBx, originBy)
-          const fc = blockToFaceChunk(wrapped.faceIdx, wrapped.bx, wrapped.by, 0)
-          targetFace = wrapped.faceIdx
-          tcx = fc.cx
-          tcy = fc.cy
+        surfaceRecords.sort((a, b) => a.distanceSq - b.distanceSq)
+        for (const record of surfaceRecords) {
+          this.queueSurfaceTileLoad(record.faceIdx, record.cx, record.cy, player.position, record.distanceSq)
         }
+        this.surfaceGlobeQueued = true
+      }
+    } else {
+      for (let faceIdx = 0; faceIdx < NUM_FACES; faceIdx++) {
+        for (let cx = 0; cx < FACE_CHUNKS; cx++) {
+          for (let cy = 0; cy < FACE_CHUNKS; cy++) {
+            if (!this.isSurfaceChunkWithinRadius(player.position, faceIdx, cx, cy, this.loadRadiusWorld)) {
+              continue
+            }
 
-        for (const cdep of depths) {
-          this.ensureChunk(targetFace, tcx, tcy, cdep)
+            this.queueSurfaceTileLoad(faceIdx, cx, cy, player.position)
+          }
         }
       }
+
+      this.unloadFarChunks(player.position)
     }
 
-    this.unloadFarChunks(faceIdx, centerCx, centerCy)
+    for (let faceIdx = 0; faceIdx < NUM_FACES; faceIdx++) {
+      for (let cx = 0; cx < FACE_CHUNKS; cx++) {
+        for (let cy = 0; cy < FACE_CHUNKS; cy++) {
+          if (!this.isSurfaceChunkWithinRadius(player.position, faceIdx, cx, cy, this.fullSolidRadiusWorld)) {
+            continue
+          }
+
+          for (const cdep of depths) {
+            this.queueChunkLoad(faceIdx, cx, cy, cdep, player.position, 'full')
+          }
+        }
+      }
+    }
   }
 
-  unloadFarChunks(centerFace, centerCx, centerCy) {
+  unloadFarChunks(playerPosition) {
     if (this.loadWholeGlobe) return
 
     for (const [key, chunk] of this.chunks) {
-      const sameFace = chunk.faceIdx === centerFace
-      const dCx = Math.abs(chunk.cx - centerCx)
-      const dCy = Math.abs(chunk.cy - centerCy)
-      const tooFar = sameFace
-        ? (dCx > this.unloadRadius || dCy > this.unloadRadius)
-        : (dCx > this.unloadRadius && dCy > this.unloadRadius)
-
-      if (tooFar) {
+      if (!this.isSurfaceChunkWithinRadius(playerPosition, chunk.faceIdx, chunk.cx, chunk.cy, this.unloadRadiusWorld)) {
         disposeChunkMesh(chunk)
         this.chunks.delete(key)
       }
     }
+
+    for (let i = this.pendingSurfaceLoads.length - 1; i >= 0; i--) {
+      const pending = this.pendingSurfaceLoads[i]
+      if (this.isSurfaceChunkWithinRadius(playerPosition, pending.faceIdx, pending.cx, pending.cy, this.unloadRadiusWorld)) {
+        continue
+      }
+
+      this.pendingChunkLoadMap.delete(pending.key)
+      this.pendingSurfaceLoads.splice(i, 1)
+    }
+  }
+
+  isSurfaceChunkWithinRadius(playerPosition, faceIdx, cx, cy, radius) {
+    const centerBx = cx * CHUNK_SIZE + Math.floor(CHUNK_SIZE * 0.5)
+    const centerBy = cy * CHUNK_SIZE + Math.floor(CHUNK_SIZE * 0.5)
+    const chunkCenter = blockToWorld(faceIdx, centerBx, centerBy, 0)
+    const distance = chunkCenter.distanceTo(playerPosition)
+    return distance <= radius
+  }
+
+  queueSurfaceTileLoad(faceIdx, cx, cy, playerPosition, knownDistanceSq = null) {
+    const key = `surface:${getSurfaceTileKey(faceIdx, cx, cy)}`
+    if (this.surfaceTiles.has(key)) return
+
+    const pending = this.pendingChunkLoadMap.get(key)
+    if (pending) return
+
+    let distanceSq = knownDistanceSq
+    if (distanceSq == null) {
+      const centerBx = cx * CHUNK_SIZE + Math.floor(CHUNK_SIZE * 0.5)
+      const centerBy = cy * CHUNK_SIZE + Math.floor(CHUNK_SIZE * 0.5)
+      const chunkCenter = blockToWorld(faceIdx, centerBx, centerBy, 0)
+      distanceSq = chunkCenter.distanceToSquared(playerPosition)
+    }
+
+    const record = { faceIdx, cx, cy, key, distanceSq, queueType: 'surfaceTile' }
+    this.pendingSurfaceLoads.push(record)
+    this.pendingChunkLoadMap.set(key, record)
+  }
+
+  queueChunkLoad(faceIdx, cx, cy, cdep, playerPosition, generationMode) {
+    const key = getFaceChunkKey(faceIdx, cx, cy, cdep)
+    const existing = this.chunks.get(key)
+    if (existing) {
+      if (existing.generationMode === 'full') return
+      if (existing.generationMode === generationMode) return
+    }
+
+    const pending = this.pendingChunkLoadMap.get(key)
+    if (pending) {
+      if (generationMode === 'full' && pending.generationMode !== 'full') {
+        pending.generationMode = 'full'
+        pending.queueType = 'promotion'
+        this.pendingPromotionLoads.push(pending)
+      }
+      return
+    }
+
+    const centerBx = cx * CHUNK_SIZE + Math.floor(CHUNK_SIZE * 0.5)
+    const centerBy = cy * CHUNK_SIZE + Math.floor(CHUNK_SIZE * 0.5)
+    const chunkCenter = blockToWorld(faceIdx, centerBx, centerBy, 0)
+    const distanceSq = chunkCenter.distanceToSquared(playerPosition)
+
+    const record = { faceIdx, cx, cy, cdep, key, distanceSq, generationMode, queueType: 'promotion' }
+    this.pendingPromotionLoads.push(record)
+    this.pendingChunkLoadMap.set(key, record)
+  }
+
+  processPendingChunkLoads() {
+    if (this.pendingPromotionLoads.length === 0 && this.pendingSurfaceLoads.length === 0) return
+
+    let promotionLoads = 0
+    while (promotionLoads < this.maxChunkLoadsPerFrame) {
+      let next = null
+
+      while (this.pendingPromotionLoads.length > 0 && !next) {
+        const candidate = this.pendingPromotionLoads.shift()
+        if (this.pendingChunkLoadMap.get(candidate.key) !== candidate) continue
+        next = candidate
+      }
+
+      if (!next) break
+
+      this.pendingChunkLoadMap.delete(next.key)
+      this.ensureChunk(next.faceIdx, next.cx, next.cy, next.cdep, next.generationMode)
+      promotionLoads++
+    }
+
+    let surfaceLoads = 0
+    while (surfaceLoads < this.maxSurfaceTileLoadsPerFrame) {
+      let next = null
+      while (this.pendingSurfaceLoads.length > 0 && !next) {
+        const candidate = this.pendingSurfaceLoads.shift()
+        if (this.pendingChunkLoadMap.get(candidate.key) !== candidate) continue
+        if (candidate.queueType !== 'surfaceTile') continue
+        next = candidate
+      }
+
+      if (!next) break
+
+      this.pendingChunkLoadMap.delete(next.key)
+      this.ensureSurfaceTile(next.faceIdx, next.cx, next.cy)
+      surfaceLoads++
+    }
+  }
+
+  ensureSurfaceTile(faceIdx, cx, cy) {
+    const key = `surface:${getSurfaceTileKey(faceIdx, cx, cy)}`
+    if (this.surfaceTiles.has(key)) return this.surfaceTiles.get(key)
+
+    const mesh = buildSurfaceTileMesh(faceIdx, cx, cy, this.material)
+    const tile = { faceIdx, cx, cy, key, mesh, hiddenByFullChunks: 0 }
+    if (mesh) this.group.add(mesh)
+    this.surfaceTiles.set(key, tile)
+    return tile
   }
 
   rebuildDirtyChunks() {
@@ -314,11 +464,28 @@ export class SphereWorld {
       if (!isChunkDirty(chunk)) continue
       if (rebuilt >= this.maxChunkRebuildsPerFrame) break
 
-      disposeChunkMesh(chunk)
+      const previousMesh = chunk.mesh
       const mesh = buildSphereChunkMesh(chunk, this, this.material)
       if (mesh) {
         setChunkMesh(chunk, mesh)
         this.group.add(mesh)
+        if (previousMesh) {
+          if (previousMesh.parent) previousMesh.parent.remove(previousMesh)
+          previousMesh.traverse((child) => {
+            child.geometry?.dispose?.()
+            if (child === previousMesh) return
+            if (Array.isArray(child.material)) {
+              for (const material of child.material) material?.dispose?.()
+            } else {
+              child.material?.dispose?.()
+            }
+          })
+        }
+        if (chunk.generationMode === 'full') {
+          this.hideSurfaceTile(chunk.faceIdx, chunk.cx, chunk.cy)
+        }
+      } else if (previousMesh) {
+        setChunkMesh(chunk, previousMesh)
       }
       clearChunkDirty(chunk)
       rebuilt++
@@ -336,7 +503,7 @@ export class SphereWorld {
 
     const { faceIdx: wFace, bx: wBx, by: wBy } = wrapBlockCoords(faceIdx, bx, by)
     const { cx, cy, cdep } = blockToFaceChunk(wFace, wBx, wBy, bz)
-    const chunk = this.ensureChunk(wFace, cx, cy, cdep)
+    const chunk = this.ensureChunk(wFace, cx, cy, cdep, 'full')
     if (!chunk) return false
 
     const { lx, ly, lz } = blockToFaceLocal(wBx, wBy, bz)
@@ -358,7 +525,7 @@ export class SphereWorld {
 
     const { faceIdx: wFace, bx: wBx, by: wBy } = wrapBlockCoords(faceIdx, bx, by)
     const { cx, cy, cdep } = blockToFaceChunk(wFace, wBx, wBy, bz)
-    const chunk = this.getChunk(wFace, cx, cy, cdep)
+    const chunk = this.ensureChunk(wFace, cx, cy, cdep, 'full')
     if (!chunk) return false
 
     const { lx, ly, lz } = blockToFaceLocal(wBx, wBy, bz)
@@ -393,7 +560,7 @@ export class SphereWorld {
 
     const { faceIdx: wFace, bx: wBx, by: wBy } = wrapBlockCoords(faceIdx, bx, by)
     const { cx, cy, cdep } = blockToFaceChunk(wFace, wBx, wBy, bz)
-    const chunk = this.getChunk(wFace, cx, cy, cdep)
+    const chunk = this.ensureChunk(wFace, cx, cy, cdep, 'full')
     if (!chunk) return false
 
     const { lx, ly, lz } = blockToFaceLocal(wBx, wBy, bz)
@@ -509,6 +676,20 @@ export class SphereWorld {
     }
     this.chunks.clear()
 
+    for (const tile of this.surfaceTiles.values()) {
+      tile.mesh?.removeFromParent?.()
+      tile.mesh?.traverse?.((child) => {
+        child.geometry?.dispose?.()
+        if (child === tile.mesh) return
+        if (Array.isArray(child.material)) {
+          for (const material of child.material) material?.dispose?.()
+        } else {
+          child.material?.dispose?.()
+        }
+      })
+    }
+    this.surfaceTiles.clear()
+
     if (this.group.parent) {
       this.group.parent.remove(this.group)
     }
@@ -517,96 +698,56 @@ export class SphereWorld {
   }
 
   isSupportedBz(bz) {
-    return (bz >= 0 && bz < SHELL_DEPTH) || (bz >= CLOUD_BZ_MIN && bz <= CLOUD_BZ_MAX)
+    return bz >= TERRAIN_MIN_BZ && bz < SHELL_DEPTH
   }
 
   isSupportedChunkDepth(cdep) {
-    return (cdep >= 0 && cdep < DEP_CHUNKS) || (cdep >= CLOUD_CDEP_MIN && cdep <= CLOUD_CDEP_MAX)
+    return cdep >= TERRAIN_MIN_CHUNK && cdep < DEP_CHUNKS
   }
 
   getChunkDepths() {
     const depths = []
-    for (let cdep = CLOUD_CDEP_MIN; cdep <= CLOUD_CDEP_MAX; cdep++) {
-      depths.push(cdep)
-    }
-    for (let cdep = 0; cdep < DEP_CHUNKS; cdep++) {
+    for (let cdep = TERRAIN_MIN_CHUNK; cdep < DEP_CHUNKS; cdep++) {
       depths.push(cdep)
     }
     return depths
   }
 
-  getGeneratedBlockId(faceIdx, bx, by, bz) {
-    if (bz >= 0 && bz < SHELL_DEPTH) {
-      return SPHERE_PRESET.getBlockId(faceIdx, bx, by, bz)
+  getGeneratedBlockId(faceIdx, bx, by, bz, generationMode = 'full') {
+    if (bz >= TERRAIN_MIN_BZ && bz < SHELL_DEPTH) {
+      const blockId = SPHERE_PRESET.getBlockId(faceIdx, bx, by, bz)
+      if (generationMode === 'full' || blockId === BLOCK.AIR) return blockId
+      return this.isTerrainBlockExposed(faceIdx, bx, by, bz) ? blockId : BLOCK.AIR
     }
-    return this.getCloudBlockId(faceIdx, bx, by, bz)
+    return BLOCK.AIR
   }
 
-  getCloudBlockId(faceIdx, bx, by, bz) {
-    if (bz < CLOUD_BZ_MIN || bz > CLOUD_BZ_MAX) return BLOCK.AIR
+  isTerrainBlockExposed(faceIdx, bx, by, bz) {
+    const profile = getColumnProfile(faceIdx, bx, by)
+    if (profile.landMask <= 0.33) return bz === 0
+    if (bz < profile.topBz || bz > 0) return false
 
-    const worldPos = blockToWorld(faceIdx, bx, by, bz)
-    const radialLen = Math.max(0.0001, worldPos.length())
-    const hemisphere = worldPos.y / radialLen
-    const absLat = Math.abs(hemisphere)
+    if (bz === profile.topBz || bz === 0) return true
 
-    const wetEquator = 1.0 - Math.min(1, absLat / 0.22)
-    const stormTrack = 1.0 - Math.min(1, Math.abs(absLat - 0.58) / 0.16)
-    const drySubtropics = 1.0 - Math.min(1, Math.abs(absLat - 0.30) / 0.11)
-    const polarBand = Math.max(0, (absLat - 0.78) / 0.18)
-    const regionalWeather =
-      wetEquator * 0.28 +
-      stormTrack * 0.40 +
-      polarBand * 0.14 -
-      drySubtropics * 0.26
+    const lateralOffsets = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]
 
-    const climateNoise =
-      this.hash01(faceIdx, floorDiv(bx, 48), floorDiv(by, 48), 17) * 0.45 +
-      this.hash01(faceIdx, floorDiv(bx, 96), floorDiv(by, 96), 23) * 0.35 +
-      this.hash01(faceIdx, floorDiv(bx, 20), floorDiv(by, 20), 31) * 0.20
-    const coverage = regionalWeather + climateNoise * 0.68
-    if (coverage < 0.42) return BLOCK.AIR
+    for (const [ox, oy] of lateralOffsets) {
+      const wrapped = wrapBlockCoords(faceIdx, bx + ox, by + oy)
+      const neighborProfile = getColumnProfile(wrapped.faceIdx, wrapped.bx, wrapped.by)
+      const neighborHasSolidAtBz =
+        bz >= neighborProfile.topBz &&
+        bz <= 0 &&
+        (neighborProfile.landMask > 0.33 || bz === 0)
 
-    const regionX = floorDiv(bx, 16)
-    const regionY = floorDiv(by, 14)
-    const regionSeed = this.hash01(faceIdx, regionX, regionY, 59)
-    const threshold = 0.54 + Math.max(0, 0.68 - coverage) * 0.4
-    if (regionSeed < threshold) return BLOCK.AIR
+      if (!neighborHasSolidAtBz) return true
+    }
 
-    const cellMinX = regionX * 16
-    const cellMinY = regionY * 14
-    const boxStartX = cellMinX + 1 + Math.floor(this.hash01(faceIdx, regionX, regionY, 61) * 4)
-    const boxStartY = cellMinY + 1 + Math.floor(this.hash01(faceIdx, regionX, regionY, 67) * 3)
-    const boxWidth = 5 + Math.floor(this.hash01(faceIdx, regionX, regionY, 71) * 5)
-    const boxHeight = 4 + Math.floor(this.hash01(faceIdx, regionX, regionY, 73) * 4)
-
-    const cloudTopAltitude = 40 + Math.floor(this.hash01(faceIdx, regionX, regionY, 79) * 14)
-    const cloudDepth = 3 + Math.floor(this.hash01(faceIdx, regionX, regionY, 83) * 4)
-    const cloudBottomAltitude = Math.min(60, cloudTopAltitude + cloudDepth)
-
-    const boxEndX = boxStartX + boxWidth - 1
-    const boxEndY = boxStartY + boxHeight - 1
-    const altitude = -bz
-
-    if (bx < boxStartX || bx > boxEndX) return BLOCK.AIR
-    if (by < boxStartY || by > boxEndY) return BLOCK.AIR
-    if (altitude < cloudTopAltitude || altitude > cloudBottomAltitude) return BLOCK.AIR
-
-    const onOuterWall =
-      bx === boxStartX ||
-      bx === boxEndX ||
-      by === boxStartY ||
-      by === boxEndY ||
-      altitude === cloudTopAltitude ||
-      altitude === cloudBottomAltitude
-
-    if (!onOuterWall) return BLOCK.AIR
-
-    const carveNoise = this.hash01(faceIdx, bx, by, altitude, 97)
-    const largeGap = this.hash01(faceIdx, floorDiv(bx, 6), floorDiv(by, 6), floorDiv(altitude, 4), 101)
-    if (carveNoise < 0.12 || largeGap < 0.08) return BLOCK.AIR
-
-    return BLOCK.CLOUD
+    return false
   }
 
   hash01(...values) {
@@ -616,5 +757,13 @@ export class SphereWorld {
       hash = Math.imul(hash, 16777619)
     }
     return ((hash >>> 0) % 1000000) / 1000000
+  }
+
+  hideSurfaceTile(faceIdx, cx, cy) {
+    const key = `surface:${getSurfaceTileKey(faceIdx, cx, cy)}`
+    const tile = this.surfaceTiles.get(key)
+    if (!tile) return
+    tile.hiddenByFullChunks++
+    if (tile.mesh) tile.mesh.visible = false
   }
 }

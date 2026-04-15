@@ -8,12 +8,13 @@ import {
   localToBlock,
 } from './worldMath.js'
 
-export function createChunk(cx, cy, cz) {
-  const blocks = new Uint8Array(CHUNK_VOLUME)
-  const originalBlocks = new Uint8Array(CHUNK_VOLUME)
+export function createChunk(cx, cy, cz, storageMode = 'dense') {
+  const dense = storageMode === 'dense'
+  const blocks = dense ? new Uint8Array(CHUNK_VOLUME) : null
+  const originalBlocks = dense ? new Uint8Array(CHUNK_VOLUME) : null
 
-  blocks.fill(BLOCK.AIR)
-  originalBlocks.fill(BLOCK.AIR)
+  blocks?.fill(BLOCK.AIR)
+  originalBlocks?.fill(BLOCK.AIR)
 
   return {
     cx,
@@ -22,8 +23,11 @@ export function createChunk(cx, cy, cz) {
     key: getChunkKey(cx, cy, cz),
 
     size: CHUNK_SIZE,
+    storageMode,
     blocks,
     originalBlocks,
+    sparseBlocks: dense ? null : new Map(),
+    sparseOriginalBlocks: dense ? null : new Map(),
 
     dirty: true,
     mesh: null,
@@ -34,23 +38,37 @@ export function createChunk(cx, cy, cz) {
 
 export function getChunkBlock(chunk, lx, ly, lz) {
   if (!isValidLocalCoord(lx, ly, lz)) return BLOCK.AIR
-  return chunk.blocks[getBlockIndex(lx, ly, lz)]
+  const index = getBlockIndex(lx, ly, lz)
+  if (chunk.storageMode === 'dense') {
+    return chunk.blocks[index]
+  }
+  return chunk.sparseBlocks.get(index) ?? BLOCK.AIR
 }
 
 export function getChunkOriginalBlock(chunk, lx, ly, lz) {
   if (!isValidLocalCoord(lx, ly, lz)) return BLOCK.AIR
-  return chunk.originalBlocks[getBlockIndex(lx, ly, lz)]
+  const index = getBlockIndex(lx, ly, lz)
+  if (chunk.storageMode === 'dense') {
+    return chunk.originalBlocks[index]
+  }
+  return chunk.sparseOriginalBlocks.get(index) ?? BLOCK.AIR
 }
 
 export function setChunkBlock(chunk, lx, ly, lz, blockId) {
   if (!isValidLocalCoord(lx, ly, lz)) return false
 
   const index = getBlockIndex(lx, ly, lz)
-  const prev = chunk.blocks[index]
+  const prev = getChunkBlock(chunk, lx, ly, lz)
 
   if (prev === blockId) return false
 
-  chunk.blocks[index] = blockId
+  if (chunk.storageMode === 'dense') {
+    chunk.blocks[index] = blockId
+  } else if (blockId === BLOCK.AIR) {
+    chunk.sparseBlocks.delete(index)
+  } else {
+    chunk.sparseBlocks.set(index, blockId)
+  }
   chunk.dirty = true
   return true
 }
@@ -59,34 +77,75 @@ export function setChunkOriginalBlock(chunk, lx, ly, lz, blockId) {
   if (!isValidLocalCoord(lx, ly, lz)) return false
 
   const index = getBlockIndex(lx, ly, lz)
-  chunk.originalBlocks[index] = blockId
+  if (chunk.storageMode === 'dense') {
+    chunk.originalBlocks[index] = blockId
+  } else if (blockId === BLOCK.AIR) {
+    chunk.sparseOriginalBlocks.delete(index)
+  } else {
+    chunk.sparseOriginalBlocks.set(index, blockId)
+  }
   return true
 }
 
 export function setChunkBlockAndOriginal(chunk, lx, ly, lz, blockId) {
   if (!isValidLocalCoord(lx, ly, lz)) return false
 
-  const index = getBlockIndex(lx, ly, lz)
-  chunk.blocks[index] = blockId
-  chunk.originalBlocks[index] = blockId
+  setChunkBlock(chunk, lx, ly, lz, blockId)
+  setChunkOriginalBlock(chunk, lx, ly, lz, blockId)
   chunk.dirty = true
   return true
 }
 
 export function fillChunkFromGenerator(chunk, generatorFn) {
+  if (chunk.storageMode === 'dense') {
+    chunk.blocks.fill(BLOCK.AIR)
+    chunk.originalBlocks.fill(BLOCK.AIR)
+  } else {
+    chunk.sparseBlocks.clear()
+    chunk.sparseOriginalBlocks.clear()
+  }
+
   for (let lz = 0; lz < CHUNK_SIZE; lz++) {
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         const { bx, by, bz } = localToBlock(chunk.cx, chunk.cy, chunk.cz, lx, ly, lz)
         const blockId = generatorFn(bx, by, bz, lx, ly, lz, chunk) ?? BLOCK.AIR
-        const index = getBlockIndex(lx, ly, lz)
-
-        chunk.blocks[index] = blockId
-        chunk.originalBlocks[index] = blockId
+        setChunkOriginalBlock(chunk, lx, ly, lz, blockId)
+        setChunkBlock(chunk, lx, ly, lz, blockId)
       }
     }
   }
 
+  chunk.dirty = true
+  return chunk
+}
+
+export function setChunkStorageMode(chunk, storageMode, generatorFn = null) {
+  if (chunk.storageMode === storageMode) return chunk
+
+  if (storageMode === 'dense') {
+    chunk.storageMode = 'dense'
+    chunk.blocks = new Uint8Array(CHUNK_VOLUME)
+    chunk.originalBlocks = new Uint8Array(CHUNK_VOLUME)
+    chunk.sparseBlocks = null
+    chunk.sparseOriginalBlocks = null
+    chunk.blocks.fill(BLOCK.AIR)
+    chunk.originalBlocks.fill(BLOCK.AIR)
+    if (generatorFn) {
+      fillChunkFromGenerator(chunk, generatorFn)
+    }
+    chunk.dirty = true
+    return chunk
+  }
+
+  chunk.storageMode = 'sparse'
+  chunk.blocks = null
+  chunk.originalBlocks = null
+  chunk.sparseBlocks = new Map()
+  chunk.sparseOriginalBlocks = new Map()
+  if (generatorFn) {
+    fillChunkFromGenerator(chunk, generatorFn)
+  }
   chunk.dirty = true
   return chunk
 }

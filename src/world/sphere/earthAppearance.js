@@ -2,6 +2,11 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
 }
 
+function smoothstep(edge0, edge1, value) {
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1)
+  return t * t * (3 - 2 * t)
+}
+
 function wrapLongitudeDelta(delta) {
   let result = delta
   while (result > 180) result -= 360
@@ -56,6 +61,72 @@ function sampleContinentMask(latitude, longitude) {
     Math.cos((longitude * 1.7 - latitude) * Math.PI / 50) * 0.06
 
   return land + waviness
+}
+
+function fract(value) {
+  return value - Math.floor(value)
+}
+
+function hash2(latitude, longitude, seed) {
+  const dot = latitude * 127.1 + longitude * 311.7 + seed * 74.7
+  return fract(Math.sin(dot) * 43758.5453123)
+}
+
+function smoothNoise(latitude, longitude, scale, seed) {
+  const x = longitude / scale
+  const y = latitude / scale
+  const x0 = Math.floor(x)
+  const y0 = Math.floor(y)
+  const tx = x - x0
+  const ty = y - y0
+
+  const sx = tx * tx * (3 - 2 * tx)
+  const sy = ty * ty * (3 - 2 * ty)
+
+  const n00 = hash2(y0, x0, seed)
+  const n10 = hash2(y0, x0 + 1, seed)
+  const n01 = hash2(y0 + 1, x0, seed)
+  const n11 = hash2(y0 + 1, x0 + 1, seed)
+
+  const nx0 = n00 + (n10 - n00) * sx
+  const nx1 = n01 + (n11 - n01) * sx
+  return nx0 + (nx1 - nx0) * sy
+}
+
+export function sampleApproxEarthLandMask(latitude, longitude) {
+  return sampleContinentMask(latitude, longitude)
+}
+
+export function sampleApproxEarthTerrainHeight(latitude, longitude) {
+  const landMask = sampleContinentMask(latitude, longitude)
+  if (landMask <= 0.33) return 0
+
+  const broad = smoothNoise(latitude, longitude, 18, 11)
+  const medium = smoothNoise(latitude, longitude, 9, 29)
+  const ridged = 1 - Math.abs(smoothNoise(latitude, longitude, 5, 47) * 2 - 1)
+  const uplift = clamp((landMask - 0.33) / 0.95, 0, 1)
+  const polarSoftening = 1 - clamp((Math.abs(latitude) - 62) / 24, 0, 1) * 0.35
+
+  const hills =
+    broad * 0.45 +
+    medium * 0.35 +
+    ridged * 0.20
+
+  const coastalRamp = smoothstep(0.33, 0.95, landMask)
+  const coastalShelf = smoothstep(0.33, 0.50, landMask)
+  const inlandBoost = smoothstep(0.55, 1.05, landMask)
+
+  const lowlandHeight = 2 + broad * 4 + medium * 3
+  const inlandHeight = 8 + hills * 18 + uplift * 10 + ridged * 8
+  const mountainHeight = 18 + hills * 28 + uplift * 20 + ridged * 18
+
+  const shapedHeight =
+    lowlandHeight * (1 - coastalShelf) +
+    inlandHeight * coastalShelf * (1 - inlandBoost) +
+    mountainHeight * inlandBoost
+
+  const finalHeight = shapedHeight * polarSoftening * coastalRamp
+  return Math.max(1, Math.round(finalHeight))
 }
 
 export function getApproxEarthSurfaceColor(latitude, longitude) {

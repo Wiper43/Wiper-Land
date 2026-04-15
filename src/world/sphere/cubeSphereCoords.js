@@ -23,10 +23,11 @@
 import * as THREE from 'three'
 
 export const SPHERE_RADIUS = 1024  // world-unit radius of outer surface
-export const FACE_RES      = 128   // blocks per face edge
-export const SHELL_DEPTH   = 1     // single surface layer only
+export const FACE_RES      = 256   // blocks per face edge
+export const SHELL_DEPTH   = 1     // shell depth below the baseline surface
 export const LAYER_SCALE   = 1.0   // world units per depth step
 export const NUM_FACES     = 6
+export const TERRAIN_MIN_BZ = -320 // allows dramatically taller raised terrain above the shell
 
 // ── Core math (planetcraft port) ─────────────────────────────
 

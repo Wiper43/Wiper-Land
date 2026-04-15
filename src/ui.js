@@ -59,13 +59,28 @@ export function createUI() {
   hint.textContent = ''
   root.appendChild(hint)
 
+  const fpsCounter = document.createElement('div')
+  fpsCounter.style.position = 'absolute'
+  fpsCounter.style.right = '18px'
+  fpsCounter.style.bottom = '18px'
+  fpsCounter.style.padding = '8px 12px'
+  fpsCounter.style.borderRadius = '10px'
+  fpsCounter.style.background = 'rgba(0,0,0,0.56)'
+  fpsCounter.style.border = '1px solid rgba(255,255,255,0.14)'
+  fpsCounter.style.color = '#f4f7ff'
+  fpsCounter.style.fontFamily = 'monospace'
+  fpsCounter.style.fontSize = '14px'
+  fpsCounter.style.textShadow = '0 0 4px rgba(0,0,0,0.9)'
+  fpsCounter.textContent = 'FPS: --'
+  root.appendChild(fpsCounter)
+
   const compass = document.createElement('div')
   compass.style.position = 'absolute'
   compass.style.left = '50%'
   compass.style.top = '18px'
   compass.style.transform = 'translateX(-50%)'
   compass.style.width = '220px'
-  compass.style.height = '56px'
+  compass.style.height = '72px'
   compass.style.borderRadius = '999px'
   compass.style.background = 'rgba(0,0,0,0.56)'
   compass.style.border = '1px solid rgba(255,255,255,0.18)'
@@ -82,7 +97,7 @@ export function createUI() {
   compassLabelNorth.textContent = 'N'
   compassLabelNorth.style.position = 'absolute'
   compassLabelNorth.style.left = '50%'
-  compassLabelNorth.style.top = '5px'
+  compassLabelNorth.style.top = '6px'
   compassLabelNorth.style.transform = 'translateX(-50%)'
   compassLabelNorth.style.fontFamily = 'sans-serif'
   compassLabelNorth.style.fontWeight = '800'
@@ -95,7 +110,7 @@ export function createUI() {
   compassLabelSouth.textContent = 'S'
   compassLabelSouth.style.position = 'absolute'
   compassLabelSouth.style.left = '50%'
-  compassLabelSouth.style.bottom = '5px'
+  compassLabelSouth.style.bottom = '6px'
   compassLabelSouth.style.transform = 'translateX(-50%)'
   compassLabelSouth.style.fontFamily = 'sans-serif'
   compassLabelSouth.style.fontWeight = '800'
@@ -109,7 +124,7 @@ export function createUI() {
   compassNeedle.style.left = '50%'
   compassNeedle.style.top = '50%'
   compassNeedle.style.width = '4px'
-  compassNeedle.style.height = '24px'
+  compassNeedle.style.height = '28px'
   compassNeedle.style.transform = 'translate(-50%, -50%) rotate(0deg)'
   compassNeedle.style.transformOrigin = '50% 50%'
   compassDial.appendChild(compassNeedle)
@@ -121,9 +136,9 @@ export function createUI() {
   compassNorthTip.style.width = '0'
   compassNorthTip.style.height = '0'
   compassNorthTip.style.transform = 'translateX(-50%)'
-  compassNorthTip.style.borderLeft = '7px solid transparent'
-  compassNorthTip.style.borderRight = '7px solid transparent'
-  compassNorthTip.style.borderBottom = '14px solid #ff4d4d'
+  compassNorthTip.style.borderLeft = '6px solid transparent'
+  compassNorthTip.style.borderRight = '6px solid transparent'
+  compassNorthTip.style.borderBottom = '12px solid #ff4d4d'
   compassNorthTip.style.filter = 'drop-shadow(0 0 8px rgba(255,77,77,0.55))'
   compassNeedle.appendChild(compassNorthTip)
 
@@ -134,9 +149,9 @@ export function createUI() {
   compassSouthTip.style.width = '0'
   compassSouthTip.style.height = '0'
   compassSouthTip.style.transform = 'translateX(-50%)'
-  compassSouthTip.style.borderLeft = '7px solid transparent'
-  compassSouthTip.style.borderRight = '7px solid transparent'
-  compassSouthTip.style.borderTop = '14px solid #f7fbff'
+  compassSouthTip.style.borderLeft = '6px solid transparent'
+  compassSouthTip.style.borderRight = '6px solid transparent'
+  compassSouthTip.style.borderTop = '12px solid #f7fbff'
   compassSouthTip.style.filter = 'drop-shadow(0 0 8px rgba(247,251,255,0.55))'
   compassNeedle.appendChild(compassSouthTip)
 
@@ -837,6 +852,47 @@ root.appendChild(spellbookHolder)
     return Math.max(min, Math.min(max, value))
   }
 
+  function getHeadingAngleDeg(position, direction) {
+    if (!position || !direction) return null
+
+    const radius = Math.max(0.0001, Math.hypot(position.x, position.y, position.z))
+    const upX = position.x / radius
+    const upY = position.y / radius
+    const upZ = position.z / radius
+
+    const northPoleX = 0
+    const northPoleY = 1
+    const northPoleZ = 0
+
+    let northX = northPoleX - upX * (northPoleX * upX + northPoleY * upY + northPoleZ * upZ)
+    let northY = northPoleY - upY * (northPoleX * upX + northPoleY * upY + northPoleZ * upZ)
+    let northZ = northPoleZ - upZ * (northPoleX * upX + northPoleY * upY + northPoleZ * upZ)
+
+    const northLen = Math.hypot(northX, northY, northZ)
+    if (northLen < 0.0001) return null
+
+    northX /= northLen
+    northY /= northLen
+    northZ /= northLen
+
+    let forwardX = direction.x - upX * (direction.x * upX + direction.y * upY + direction.z * upZ)
+    let forwardY = direction.y - upY * (direction.x * upX + direction.y * upY + direction.z * upZ)
+    let forwardZ = direction.z - upZ * (direction.x * upX + direction.y * upY + direction.z * upZ)
+
+    const forwardLen = Math.max(0.0001, Math.hypot(forwardX, forwardY, forwardZ))
+    forwardX /= forwardLen
+    forwardY /= forwardLen
+    forwardZ /= forwardLen
+
+    const eastX = northY * upZ - northZ * upY
+    const eastY = northZ * upX - northX * upZ
+    const eastZ = northX * upY - northY * upX
+
+    const dotNorth = clamp(forwardX * northX + forwardY * northY + forwardZ * northZ, -1, 1)
+    const dotEast = clamp(forwardX * eastX + forwardY * eastY + forwardZ * eastZ, -1, 1)
+    return Math.atan2(dotEast, dotNorth) * (180 / Math.PI)
+  }
+
   function updateMapPlayerPosition(position, direction = null) {
     if (!position) return
 
@@ -850,8 +906,10 @@ root.appendChild(spellbookHolder)
     playerMarker.style.left = `${clamp(normalizedX, 0, 1) * 100}%`
     playerMarker.style.top = `${clamp(normalizedY, 0, 1) * 100}%`
     if (direction) {
-      const angleDeg = Math.atan2(direction.z, direction.x) * (180 / Math.PI)
-      playerMarker.style.transform = `translate(-50%, -50%) rotate(${angleDeg}deg)`
+      const angleDeg = getHeadingAngleDeg(position, direction)
+      if (angleDeg != null) {
+        playerMarker.style.transform = `translate(-50%, -50%) rotate(${angleDeg - 90}deg)`
+      }
     }
     mapCoords.textContent =
       `Lat: ${latitude.toFixed(2)}\n` +
@@ -873,48 +931,13 @@ root.appendChild(spellbookHolder)
 
   function updateCompass(playerPosition, cameraDirection) {
     if (!playerPosition || !cameraDirection) return
-
-    const radius = Math.max(0.0001, Math.hypot(playerPosition.x, playerPosition.y, playerPosition.z))
-    const upX = playerPosition.x / radius
-    const upY = playerPosition.y / radius
-    const upZ = playerPosition.z / radius
-
-    const northPoleX = 0
-    const northPoleY = 1
-    const northPoleZ = 0
-
-    let northX = northPoleX - upX * (northPoleX * upX + northPoleY * upY + northPoleZ * upZ)
-    let northY = northPoleY - upY * (northPoleX * upX + northPoleY * upY + northPoleZ * upZ)
-    let northZ = northPoleZ - upZ * (northPoleX * upX + northPoleY * upY + northPoleZ * upZ)
-
-    const northLen = Math.hypot(northX, northY, northZ)
-    if (northLen < 0.0001) {
+    const angleDeg = getHeadingAngleDeg(playerPosition, cameraDirection)
+    if (angleDeg == null) {
       compassNeedle.style.opacity = '0.2'
       return
     }
 
     compassNeedle.style.opacity = '1'
-    northX /= northLen
-    northY /= northLen
-    northZ /= northLen
-
-    let forwardX = cameraDirection.x - upX * (cameraDirection.x * upX + cameraDirection.y * upY + cameraDirection.z * upZ)
-    let forwardY = cameraDirection.y - upY * (cameraDirection.x * upX + cameraDirection.y * upY + cameraDirection.z * upZ)
-    let forwardZ = cameraDirection.z - upZ * (cameraDirection.x * upX + cameraDirection.y * upY + cameraDirection.z * upZ)
-
-    const forwardLen = Math.max(0.0001, Math.hypot(forwardX, forwardY, forwardZ))
-    forwardX /= forwardLen
-    forwardY /= forwardLen
-    forwardZ /= forwardLen
-
-    const eastX = northY * upZ - northZ * upY
-    const eastY = northZ * upX - northX * upZ
-    const eastZ = northX * upY - northY * upX
-
-    const dotNorth = clamp(forwardX * northX + forwardY * northY + forwardZ * northZ, -1, 1)
-    const dotEast = clamp(forwardX * eastX + forwardY * eastY + forwardZ * eastZ, -1, 1)
-    const angleDeg = Math.atan2(dotEast, dotNorth) * (180 / Math.PI)
-
     compassNeedle.style.transform = `translate(-50%, -50%) rotate(${angleDeg}deg)`
   }
 
@@ -937,6 +960,9 @@ root.appendChild(spellbookHolder)
 
     setCowVolume,
     setFireBombCharge,
+    setFPS(value) {
+      fpsCounter.textContent = `FPS: ${value}`
+    },
     updateCompass,
     updateMapPlayerPosition,
 

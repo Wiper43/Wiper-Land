@@ -5,7 +5,7 @@ Date: 2026-04-13
 ## World Size
 
 - `SPHERE_RADIUS = 1024`
-- `FACE_RES = 128`
+- `FACE_RES = 256`
 - `SHELL_DEPTH = 1`
 - `LAYER_SCALE = 1.0`
 - cube-sphere planet with 6 faces
@@ -14,7 +14,7 @@ Date: 2026-04-13
 What that means in practice:
 - the globe is physically very large
 - surface detail is intentionally coarse right now for performance
-- each face is `128 x 128` surface cells before globe projection
+- each face is `256 x 256` surface cells before globe projection
 
 ## Shell Ideology
 

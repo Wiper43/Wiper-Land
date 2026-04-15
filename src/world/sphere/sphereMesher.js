@@ -47,7 +47,10 @@ const CUBE_FACE_DEFS = [
 // ── Shared material ──────────────────────────────────────────
 
 export function createSphereBlockMaterial() {
-  return new THREE.MeshStandardMaterial({ vertexColors: true })
+  return new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    side: THREE.DoubleSide,
+  })
 }
 
 // ── Mesh builder ─────────────────────────────────────────────
@@ -81,6 +84,10 @@ export function buildSphereChunkMesh(chunk, world, material) {
 
         for (const faceDef of CUBE_FACE_DEFS) {
           const [dbx, dby, dbz] = faceDef.neighborOffset
+
+          // We do not need the globe-wide inward-facing shell cap.
+          // Rendering it creates a dark inner sphere toward the core.
+          if (dbz === 1 && bz === 0) continue
 
           // Resolve neighbour, wrapping across cube-face boundaries
           const nbz = bz + dbz
@@ -209,6 +216,22 @@ function getSphereBlockColor(blockId, faceIdx, bx, by, bz) {
       r: 0.96,
       g: 0.97,
       b: 0.99,
+    }
+  }
+
+  if (blockId === BLOCK.DIRT) {
+    return {
+      r: 0.46,
+      g: 0.34,
+      b: 0.22,
+    }
+  }
+
+  if (blockId === BLOCK.STONE) {
+    return {
+      r: 0.52,
+      g: 0.52,
+      b: 0.56,
     }
   }
 

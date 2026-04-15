@@ -13,12 +13,13 @@
 // ============================================================
 
 import { CHUNK_SIZE, CHUNK_VOLUME, floorDiv, positiveModulo, getBlockIndex, isValidLocalCoord } from '../worldMath.js'
-import { FACE_RES, SHELL_DEPTH } from './cubeSphereCoords.js'
+import { FACE_RES, SHELL_DEPTH, TERRAIN_MIN_BZ } from './cubeSphereCoords.js'
 
 export { CHUNK_SIZE, CHUNK_VOLUME, getBlockIndex, isValidLocalCoord }
 
 export const FACE_CHUNKS = Math.floor(FACE_RES / CHUNK_SIZE)     // chunk columns per face edge
 export const DEP_CHUNKS  = Math.ceil(SHELL_DEPTH / CHUNK_SIZE)   // depth chunk layers
+export const TERRAIN_MIN_CHUNK = floorDiv(TERRAIN_MIN_BZ, CHUNK_SIZE)
 
 // ── Block → chunk ────────────────────────────────────────────
 

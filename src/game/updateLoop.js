@@ -2,8 +2,23 @@ import * as THREE from 'three'
 
 export function createUpdateLoop(game) {
   const mapFacingDirection = new THREE.Vector3()
+  let fpsSampleTimer = 0
+  let fpsFrameCount = 0
+  let smoothedFPS = 0
 
   function update(deltaTime, _now) {
+    fpsSampleTimer += deltaTime
+    fpsFrameCount += 1
+    if (fpsSampleTimer >= 0.25) {
+      const instantFPS = fpsFrameCount / Math.max(0.0001, fpsSampleTimer)
+      smoothedFPS = smoothedFPS <= 0
+        ? instantFPS
+        : THREE.MathUtils.lerp(smoothedFPS, instantFPS, 0.35)
+      game.ui?.setFPS?.(Math.round(smoothedFPS))
+      fpsSampleTimer = 0
+      fpsFrameCount = 0
+    }
+
     game.player.update(deltaTime)
     game.heldItem.update(deltaTime)
     game.fireBombs?.update?.(deltaTime)

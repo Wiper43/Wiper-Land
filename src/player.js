@@ -4,10 +4,17 @@ export function createPlayer(camera, input, world, terrain = null) {
   const FLOOR_Y = -100
 
   // Capsule-ish player settings
-  const PLAYER_HEIGHT = 3.6
-  const PLAYER_RADIUS = 0.7
-  const EYE_OFFSET = 3.4
+  const PLAYER_HEIGHT = 1.8
+  const PLAYER_RADIUS = 0.35
+  const EYE_OFFSET = 1.7
+  const PLAYER_STEP_UP_ENABLED = false
+  const PLAYER_SPHERE_SIDE_COLLISION_ENABLED = false
   const STEP_HEIGHT = 1.0
+  const STEP_SINGLE_BLOCK_MIN = 0.9
+  const STEP_SINGLE_BLOCK_MAX = 1.1
+  const GROUND_SNAP_ABOVE_LIMIT = 0.65
+  const GROUND_SNAP_RECOVERY_LIMIT = 3.0
+  const GROUND_SNAP_MAX_RISE = 0.2
   const STEP_MAX_FALL_SPEED = 0.1
   const STEP_CAMERA_SMOOTH_SPEED = 14.0
   const STEP_GROUNDED_GRACE = 0.08
@@ -21,7 +28,7 @@ export function createPlayer(camera, input, world, terrain = null) {
   const AIR_ACCELERATION = 12
   const FRICTION = 14
   const AIR_CONTROL = 0.35
-  const FLY_SPEED_MULTIPLIER = 300
+  const FLY_SPEED_MULTIPLIER = 150
   const FLY_VERTICAL_SPEED = MOVE_SPEED * FLY_SPEED_MULTIPLIER
 
   // Step slowdown tuning
@@ -67,6 +74,23 @@ export function createPlayer(camera, input, world, terrain = null) {
   const _sOrigin    = new THREE.Vector3(0, 0, 0)
   const _sPrevUp    = new THREE.Vector3()
   const _sTransportAxis = new THREE.Vector3()
+  const _sBlockCenter = new THREE.Vector3()
+  const _sBlockNeighborA = new THREE.Vector3()
+  const _sBlockNeighborB = new THREE.Vector3()
+  const _sCollisionSample = new THREE.Vector3()
+  const _sCollisionOffset = new THREE.Vector3()
+  const _sCollisionPush = new THREE.Vector3()
+  const _sFallbackForward = new THREE.Vector3()
+  const _sFallbackRight = new THREE.Vector3()
+  const _sBestPush = new THREE.Vector3()
+  const _sDiagForwardRight = new THREE.Vector3()
+  const _sDiagForwardLeft = new THREE.Vector3()
+  const _sDiagBackRight = new THREE.Vector3()
+  const _sDiagBackLeft = new THREE.Vector3()
+
+  const SPHERE_COLLISION_SAMPLE_HEIGHTS = [0.05, 0.45, 0.95, 1.55]
+  const SPHERE_COLLISION_PASSES = 2
+  const SPHERE_COLLISION_SKIN = 0.04
 
   function accelerate3D(wishDir, wishSpeed, accel, deltaTime) {
     if (wishDir.lengthSq() === 0) return
@@ -375,6 +399,7 @@ export function createPlayer(camera, input, world, terrain = null) {
   }
 
   function tryStepUp(overlapBX, overlapBY, overlapBZ) {
+    if (!PLAYER_STEP_UP_ENABLED) return false
     if (!terrain) return false
     if (steppedThisFrame) return false
     if (!groundedAtFrameStart && stepGroundedGraceTimer <= 0) return false
@@ -384,6 +409,18 @@ export function createPlayer(camera, input, world, terrain = null) {
     const stepAmount = blockTop - position.y
 
     if (stepAmount <= 0.001 || stepAmount > STEP_HEIGHT + STEP_EPSILON) {
+      return false
+    }
+
+    const expectedStepTop = Math.floor(position.y + 0.001) + 1
+    if (blockTop !== expectedStepTop) {
+      return false
+    }
+
+    const isSingleBlockStep =
+      stepAmount >= STEP_SINGLE_BLOCK_MIN &&
+      stepAmount <= STEP_SINGLE_BLOCK_MAX
+    if (!isSingleBlockStep) {
       return false
     }
 
@@ -482,6 +519,101 @@ export function createPlayer(camera, input, world, terrain = null) {
   }
 
   let deltaTimeForAxis = 0
+
+  function updateVisualStepSmoothing(deltaTime) {
+    const smoothFactor = Math.min(1, STEP_CAMERA_SMOOTH_SPEED * deltaTime)
+    visualStepOffset += (0 - visualStepOffset) * smoothFactor
+    if (Math.abs(visualStepOffset) < 0.001) {
+      visualStepOffset = 0
+    }
+  }
+
+  function resolveSphereSideCollisions(sphereUp) {
+    if (!terrain?.blockToWorld || !terrain?.worldToBlock || !terrain?.isSolidBlock) return false
+
+    const centerBlock = terrain.worldToBlock(position)
+    _sBlockCenter.copy(terrain.blockToWorld(centerBlock.faceIdx, centerBlock.bx, centerBlock.by, centerBlock.bz))
+    _sBlockNeighborA.copy(terrain.blockToWorld(centerBlock.faceIdx, centerBlock.bx + 1, centerBlock.by, centerBlock.bz))
+    _sBlockNeighborB.copy(terrain.blockToWorld(centerBlock.faceIdx, centerBlock.bx, centerBlock.by + 1, centerBlock.bz))
+    const blockRadius = Math.max(
+      0.5,
+      Math.min(
+        _sBlockCenter.distanceTo(_sBlockNeighborA),
+        _sBlockCenter.distanceTo(_sBlockNeighborB),
+      ) * 0.5,
+    )
+    const desiredDistance = blockRadius + PLAYER_RADIUS * 0.85
+
+    _sFallbackForward.copy(forward).negate()
+    _sFallbackRight.copy(right).negate()
+    _sDiagForwardRight.copy(forward).add(right).normalize()
+    _sDiagForwardLeft.copy(forward).sub(right).normalize()
+    _sDiagBackRight.copy(_sFallbackForward).add(right).normalize()
+    _sDiagBackLeft.copy(_sFallbackForward).sub(right).normalize()
+    const probeDirs = [
+      forward,
+      right,
+      _sFallbackForward,
+      _sFallbackRight,
+      _sDiagForwardRight,
+      _sDiagForwardLeft,
+      _sDiagBackRight,
+      _sDiagBackLeft,
+    ]
+    let blockedByHigherWall = false
+    const previousRadius = previousPosition.length()
+
+    for (let pass = 0; pass < SPHERE_COLLISION_PASSES; pass++) {
+      let bestPenetration = 0
+      _sBestPush.set(0, 0, 0)
+
+      for (const sampleHeight of SPHERE_COLLISION_SAMPLE_HEIGHTS) {
+        for (const dir of probeDirs) {
+          _sCollisionSample.copy(position)
+            .addScaledVector(sphereUp, sampleHeight)
+            .addScaledVector(dir, PLAYER_RADIUS + SPHERE_COLLISION_SKIN)
+
+          const block = terrain.worldToBlock(_sCollisionSample)
+          if (!terrain.isSolidBlock(block.faceIdx, block.bx, block.by, block.bz)) continue
+
+          _sBlockCenter.copy(terrain.blockToWorld(block.faceIdx, block.bx, block.by, block.bz))
+          const blockSurfaceRadius = terrain.getSurfaceRadiusAt(_sBlockCenter)
+          if (blockSurfaceRadius > previousRadius + GROUND_SNAP_MAX_RISE) {
+            blockedByHigherWall = true
+          }
+          _sCollisionOffset.copy(_sCollisionSample).sub(_sBlockCenter)
+          _sCollisionPush.copy(_sCollisionOffset).addScaledVector(sphereUp, -_sCollisionOffset.dot(sphereUp))
+
+          let distance = _sCollisionPush.length()
+          if (distance < 0.0001) {
+            _sCollisionPush.copy(dir)
+            distance = 1
+          } else {
+            _sCollisionPush.multiplyScalar(1 / distance)
+          }
+
+          const penetration = desiredDistance + SPHERE_COLLISION_SKIN - distance
+          if (penetration <= 0) continue
+
+          if (penetration > bestPenetration) {
+            bestPenetration = penetration
+            _sBestPush.copy(_sCollisionPush)
+          }
+        }
+      }
+
+      if (bestPenetration <= 0) break
+
+      position.addScaledVector(_sBestPush, bestPenetration)
+
+      const intoWallSpeed = velocity.dot(_sBestPush)
+      if (intoWallSpeed < 0) {
+        velocity.addScaledVector(_sBestPush, -intoWallSpeed)
+      }
+    }
+
+    return blockedByHigherWall
+  }
 
   function update(deltaTime) {
     deltaTimeForAxis = deltaTime
@@ -613,7 +745,8 @@ export function createPlayer(camera, input, world, terrain = null) {
           _sUp.set(1, 0, 0)
         }
         camera.up.copy(_sUp)
-        camera.position.copy(position).addScaledVector(_sUp, EYE_OFFSET)
+        updateVisualStepSmoothing(deltaTime)
+        camera.position.copy(position).addScaledVector(_sUp, EYE_OFFSET - visualStepOffset)
         return
       }
 
@@ -660,6 +793,9 @@ export function createPlayer(camera, input, world, terrain = null) {
 
       // Integrate
       position.addScaledVector(velocity, deltaTime)
+      const blockedByHigherWall = PLAYER_SPHERE_SIDE_COLLISION_ENABLED
+        ? resolveSphereSideCollisions(_sUp)
+        : false
 
       // ── Ground detection & snap ──────────────────────────────
       isGrounded = false
@@ -670,13 +806,32 @@ export function createPlayer(camera, input, world, terrain = null) {
       const radialSpeed = velocity.dot(_sUp)
       const canSnapToGround = jumpSurfaceLockTimer <= 0 || radialSpeed <= 0
 
-      if (canSnapToGround && terrain.isSolidBlock(gBlock.faceIdx, gBlock.bx, gBlock.by, gBlock.bz)) {
-        const surfR = terrain.getSurfaceRadiusAt(_sFeetSample)
+      const currentRadius = position.length()
+      const surfR = terrain.getSurfaceRadiusAt(_sFeetSample)
+      const previousSurfaceRadius = terrain.getSurfaceRadiusAt(previousPosition)
+      const snapAmount = surfR - currentRadius
+      const risesAbovePreviousSurface = surfR > previousSurfaceRadius + GROUND_SNAP_MAX_RISE
+      const canStepSnap =
+        !blockedByHigherWall &&
+        !risesAbovePreviousSurface &&
+        snapAmount >= -GROUND_SNAP_ABOVE_LIMIT &&
+        snapAmount <= GROUND_SNAP_RECOVERY_LIMIT
+
+      if (canSnapToGround && canStepSnap && terrain.isSolidBlock(gBlock.faceIdx, gBlock.bx, gBlock.by, gBlock.bz)) {
         position.copy(_sUp).multiplyScalar(surfR)
 
         // Cancel inward (falling) velocity component
         const inwardSpeed = -velocity.dot(_sUp)
         if (inwardSpeed > 0) velocity.addScaledVector(_sUp, inwardSpeed)
+
+        if (
+          PLAYER_STEP_UP_ENABLED &&
+          snapAmount >= STEP_SINGLE_BLOCK_MIN &&
+          snapAmount <= STEP_SINGLE_BLOCK_MAX
+        ) {
+          visualStepOffset += snapAmount
+          stepSlowTimer = STEP_SLOW_TIME
+        }
 
         isGrounded = true
         jumpSurfaceLockTimer = 0
@@ -686,7 +841,8 @@ export function createPlayer(camera, input, world, terrain = null) {
       // Camera
       _sUp.copy(terrain.getRadialUp(position))
       camera.up.copy(_sUp)
-      camera.position.copy(position).addScaledVector(_sUp, EYE_OFFSET)
+      updateVisualStepSmoothing(deltaTime)
+      camera.position.copy(position).addScaledVector(_sUp, EYE_OFFSET - visualStepOffset)
       return
     }
     // ── END SPHERE PHYSICS ─────────────────────────────────────
@@ -725,11 +881,7 @@ export function createPlayer(camera, input, world, terrain = null) {
 
     resolveHorizontalCollisions()
 
-    const smoothFactor = Math.min(1, STEP_CAMERA_SMOOTH_SPEED * deltaTime)
-    visualStepOffset += (0 - visualStepOffset) * smoothFactor
-    if (Math.abs(visualStepOffset) < 0.001) {
-      visualStepOffset = 0
-    }
+    updateVisualStepSmoothing(deltaTime)
 
     camera.position.set(
       position.x,
